@@ -1,0 +1,10 @@
+target/
+data/
+tools/
+mvn-local.cmd
+mvn-local.ps1
+.idea/
+.vscode/
+*.iml
+*.log
+*.tmp

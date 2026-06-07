@@ -1,0 +1,31 @@
+body {
+    background: #f6f7f9;
+}
+
+.navbar {
+    border-bottom: 1px solid #dde2e8;
+}
+
+.page-shell {
+    max-width: 1320px;
+}
+
+.table td,
+.table th {
+    vertical-align: middle;
+}
+
+.status-pill {
+    min-width: 112px;
+}
+
+.log-output,
+.config-editor {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.875rem;
+}
+
+.log-output {
+    min-height: 420px;
+    white-space: pre-wrap;
+}

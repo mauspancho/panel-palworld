@@ -1,0 +1,42 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/palworld-admin;DB_CLOSE_DELAY=-1;MODE=LEGACY
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+  thymeleaf:
+    cache: false
+
+palworld-admin:
+  initial-admin:
+    username: ${PALWORLD_ADMIN_USER:admin}
+    password: ${PALWORLD_ADMIN_PASSWORD:admin}
+  command-timeout-seconds: 120
+  update-timeout-seconds: 1800
+  restore-timeout-seconds: 600
+  sudo-command: sudo -n
+  systemctl-command: ${PALWORLD_SYSTEMCTL_COMMAND:/usr/bin/systemctl}
+  journalctl-command: ${PALWORLD_JOURNALCTL_COMMAND:/usr/bin/journalctl}
+  cp-command: ${PALWORLD_CP_COMMAND:/usr/bin/cp}
+  chown-command: ${PALWORLD_CHOWN_COMMAND:/usr/bin/chown}
+  chmod-command: ${PALWORLD_CHMOD_COMMAND:/usr/bin/chmod}
+
+palworld:
+  defaults:
+    run-user: ${PALWORLD_DEFAULT_RUN_USER:palworld}
+    run-group: ${PALWORLD_DEFAULT_RUN_GROUP:palworld}
+    base-path: ${PALWORLD_DEFAULT_BASE_PATH:/opt/palworld-servers}
+    steamcmd-path: ${PALWORLD_DEFAULT_STEAMCMD_PATH:/usr/games/steamcmd}
+    public-port: ${PALWORLD_DEFAULT_PUBLIC_PORT:8211}
+    use-perf-threads: ${PALWORLD_DEFAULT_USE_PERF_THREADS:true}
+    public-lobby: ${PALWORLD_DEFAULT_PUBLIC_LOBBY:true}
