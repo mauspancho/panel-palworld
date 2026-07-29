@@ -4,6 +4,7 @@ import com.palworldadmin.app.service.PalworldServerService;
 import com.palworldadmin.app.service.backup.BackupService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,6 +44,7 @@ public class BackupController {
     }
 
     @PostMapping("/servers/{id}/backups/restore")
+    @PreAuthorize("hasRole('ADMIN')")
     public String restore(@PathVariable Long id, @RequestParam String path, @RequestParam String confirmation, @RequestParam(defaultValue = "false") boolean startAfterRestore, Principal principal, RedirectAttributes redirect) {
         if (!"RESTAURAR".equals(confirmation)) {
             redirect.addFlashAttribute("error", "ConfirmaciÃ³n invÃ¡lida. Escribe RESTAURAR.");

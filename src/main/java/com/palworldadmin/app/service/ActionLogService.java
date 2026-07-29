@@ -1,10 +1,13 @@
 package com.palworldadmin.app.service;
 
+import com.palworldadmin.app.dto.ActivityLogView;
 import com.palworldadmin.app.entity.ActionStatus;
 import com.palworldadmin.app.entity.PalworldServer;
 import com.palworldadmin.app.entity.ServerActionLog;
 import com.palworldadmin.app.repository.ServerActionLogRepository;
 import com.palworldadmin.app.util.CommandResult;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,12 +53,35 @@ public class ActionLogService {
         logs.save(log);
     }
 
+    @Transactional
+    public ServerActionLog record(PalworldServer server, String action, String username, String message, String output, String error, boolean success) {
+        ServerActionLog log = new ServerActionLog();
+        log.setServer(server);
+        log.setAction(action);
+        log.setUsername(username);
+        log.setStatus(success ? ActionStatus.SUCCESS : ActionStatus.FAILED);
+        log.setStartedAt(LocalDateTime.now());
+        log.setFinishedAt(log.getStartedAt());
+        log.setMessage(message);
+        log.setOutput(output);
+        log.setError(error);
+        return logs.save(log);
+    }
+
     public List<ServerActionLog> recent(PalworldServer server) {
         return logs.findTop100ByServerOrderByStartedAtDesc(server);
     }
 
     public List<ServerActionLog> recentAll() {
         return logs.findTop100ByOrderByStartedAtDesc();
+    }
+
+    public Page<ActivityLogView> recentAll(int page, int size) {
+        int safeSize = switch (size) {
+            case 10, 50, 100 -> size;
+            default -> 10;
+        };
+        return logs.findRecentActivity(PageRequest.of(Math.max(0, page), safeSize));
     }
 
     @Transactional

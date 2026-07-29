@@ -31,7 +31,7 @@ public class SystemdPalworldManager implements PalworldServerManager {
 
     @Override
     public boolean supports(PalworldServer server) {
-        return server.getType() == ServerType.SYSTEMD;
+        return server.getType() != null && server.getType().isSystemd();
     }
 
     @Override
@@ -72,32 +72,29 @@ public class SystemdPalworldManager implements PalworldServerManager {
     @Override
     public CommandResult logs(PalworldServer server, int lines) {
         String service = PathSecurityUtil.requireSafeUnitName(server.getServiceName());
-        return commands.execute(List.of(properties.getJournalctlCommand(), "-u", service, "-n", String.valueOf(Math.max(1, Math.min(lines, 1000))), "--no-pager"), normalTimeout());
+        return commands.execute(List.of(properties.getJournalctlCommand(), "-u", service, "-n", String.valueOf(Math.max(1, Math.min(lines, 10000))), "--no-pager"), normalTimeout());
     }
 
     @Override
     public CommandResult update(PalworldServer server) {
+        CommandResult userCheck = validateLinuxAccount(server);
+        if (!userCheck.success()) {
+            return userCheck;
+        }
         CommandResult stop = stop(server);
         if (!stop.success()) {
             return stop;
         }
-        String steamcmd = server.getSteamcmdPath() == null || server.getSteamcmdPath().isBlank() ? "steamcmd" : server.getSteamcmdPath();
-        CommandResult update = commands.execute(List.of(
-                steamcmd,
-                "+force_install_dir", PathSecurityUtil.normalizeRoot(server).toString(),
-                "+login", "anonymous",
-                "+app_update", "2394010", "validate",
-                "+quit"
-        ), Duration.ofSeconds(properties.getUpdateTimeoutSeconds()));
+        CommandResult update = runSteamUpdateScript(server);
         CommandResult permissions = fixPermissions(server);
         CommandResult start = start(server);
         return new CommandResult(
                 List.of("systemd update", server.getServiceName()),
                 update.success() && permissions.success() && start.success() ? 0 : 1,
-                stop.stdout() + update.stdout() + permissions.stdout() + start.stdout(),
-                stop.stderr() + update.stderr() + permissions.stderr() + start.stderr(),
-                stop.duration().plus(update.duration()).plus(permissions.duration()).plus(start.duration()),
-                stop.timedOut() || update.timedOut() || permissions.timedOut() || start.timedOut()
+                userCheck.stdout() + stop.stdout() + update.stdout() + permissions.stdout() + start.stdout(),
+                userCheck.stderr() + stop.stderr() + update.stderr() + permissions.stderr() + start.stderr(),
+                userCheck.duration().plus(stop.duration()).plus(update.duration()).plus(permissions.duration()).plus(start.duration()),
+                userCheck.timedOut() || stop.timedOut() || update.timedOut() || permissions.timedOut() || start.timedOut()
         );
     }
 
@@ -105,7 +102,6 @@ public class SystemdPalworldManager implements PalworldServerManager {
     public CommandResult install(PalworldServer server) {
         try {
             String service = PathSecurityUtil.requireSafeUnitName(server.getServiceName());
-            String steamcmd = requireSteamcmd(server);
             Path root = PathSecurityUtil.normalizeRoot(server);
             Files.createDirectories(root);
             CommandResult userCheck = validateLinuxAccount(server);
@@ -129,13 +125,7 @@ public class SystemdPalworldManager implements PalworldServerManager {
                 return failedStep("No se pudo habilitar el servicio systemd. Revisa sudoers para systemctl enable.", enable);
             }
 
-            CommandResult steam = commands.execute(List.of(
-                    steamcmd,
-                    "+force_install_dir", root.toString(),
-                    "+login", "anonymous",
-                    "+app_update", "2394010", "validate",
-                    "+quit"
-            ), Duration.ofSeconds(properties.getUpdateTimeoutSeconds()));
+            CommandResult steam = runSteamUpdateScript(server);
             if (!steam.success()) {
                 return failedStep("SteamCMD no pudo instalar o validar el servidor Palworld.", steam);
             }
@@ -165,6 +155,55 @@ public class SystemdPalworldManager implements PalworldServerManager {
         }
         CommandResult chmod = commands.execute(sudo(properties.getChmodCommand(), "+x", root.resolve("PalServer.sh").toString()), normalTimeout());
         return merge("fix permissions", chown, chmod);
+    }
+
+    private CommandResult runSteamUpdateScript(PalworldServer server) {
+        try {
+            String steamcmd = requireSteamcmd(server);
+            Path root = PathSecurityUtil.normalizeRoot(server);
+            Files.createDirectories(root);
+            Path script = PathSecurityUtil.requireInsideRoot(server, root.resolve("update-palworld.sh"));
+            Files.writeString(script, updateScript(steamcmd, root), StandardCharsets.UTF_8);
+
+            CommandResult chmod = commands.execute(List.of("chmod", "+x", script.toString()), normalTimeout());
+            if (!chmod.success()) {
+                return failedStep("No se pudo dar permiso de ejecucion al script de actualizacion: " + script, chmod);
+            }
+
+            String linuxUser = PathSecurityUtil.requireSafeLinuxUser(effectiveLinuxUser(server), "Usuario");
+            CommandResult update = commands.execute(sudo("-u", linuxUser, "/bin/bash", script.toString()), Duration.ofSeconds(properties.getUpdateTimeoutSeconds()));
+            return new CommandResult(
+                    List.of("sudo", "-u", linuxUser, "/bin/bash", script.toString()),
+                    update.exitCode(),
+                    "Script generado: " + script + System.lineSeparator() + chmod.stdout() + update.stdout(),
+                    chmod.stderr() + update.stderr(),
+                    chmod.duration().plus(update.duration()),
+                    chmod.timedOut() || update.timedOut()
+            );
+        } catch (IOException | RuntimeException e) {
+            return new CommandResult(List.of("systemd update script", server.getServiceName()), 1, "", e.getMessage(), Duration.ZERO, false);
+        }
+    }
+
+    private String updateScript(String steamcmd, Path root) {
+        return """
+                #!/usr/bin/env bash
+                set -euo pipefail
+
+                export SteamAppId=2394010
+                STEAMCMD=%s
+                INSTALL_DIR=%s
+
+                echo "Actualizando Palworld Dedicated Server"
+                echo "SteamCMD: ${STEAMCMD}"
+                echo "Ruta servidor: ${INSTALL_DIR}"
+
+                "${STEAMCMD}" +force_install_dir "${INSTALL_DIR}" +login anonymous +app_update 2394010 validate +quit
+                """.formatted(shellQuote(steamcmd), shellQuote(root.toString()));
+    }
+
+    private String shellQuote(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private CommandResult systemctl(String action, PalworldServer server) {

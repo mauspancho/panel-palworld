@@ -10,11 +10,13 @@ El panel permite registrar servidores existentes y tambien crear servidores nuev
 ## Caracteristicas
 
 - Dashboard con estado, iniciar, detener, reiniciar, actualizar e instalar/crear.
+- Dashboard moderno con conteo de jugadores activos por servidor usando RCON.
 - Registro de servidores systemd y Docker.
 - Instalacion de servidores systemd con SteamCMD.
 - Generacion de unidades systemd con `User` y `Group`.
 - Generacion de `docker-compose.yml` para servidores Docker.
 - Editor de `PalWorldSettings.ini` con formulario y modo avanzado.
+- Conexion RCON por servidor para ver jugadores y enviar mensajes Broadcast.
 - Respaldo automatico antes de guardar configuracion.
 - Detiene el servidor antes de guardar `PalWorldSettings.ini` y lo inicia despues.
 - Deteccion y restauracion de backups de mundos.
@@ -32,6 +34,8 @@ El panel permite registrar servidores existentes y tambien crear servidores nuev
 
 ## Compilar
 
+Backend:
+
 ```bash
 mvn clean package
 ```
@@ -40,6 +44,44 @@ El JAR queda en:
 
 ```text
 target/palworld-admin-0.1.0.jar
+```
+
+El JAR incluye la interfaz React compilada en `/`. Despues de iniciar sesion, el dashboard moderno carga desde el mismo backend.
+
+Frontend:
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+El frontend compilado queda en:
+
+```text
+frontend/dist/
+```
+
+Si quieres que el frontend quede dentro del JAR, compila React y copia el contenido de `frontend/dist/` a `src/main/resources/static/` antes de ejecutar `mvn clean package`.
+
+Para desarrollo local del frontend:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Por defecto Vite usa:
+
+```text
+http://localhost:5173
+```
+
+Y proxya el backend hacia:
+
+```text
+http://localhost:8080
 ```
 
 ## Ejecutar
@@ -85,9 +127,35 @@ export PALWORLD_JOURNALCTL_COMMAND=/usr/bin/journalctl
 export PALWORLD_CP_COMMAND=/usr/bin/cp
 export PALWORLD_CHOWN_COMMAND=/usr/bin/chown
 export PALWORLD_CHMOD_COMMAND=/usr/bin/chmod
+
+export PALWORLD_CORS_ALLOWED_ORIGIN=http://localhost:5173
+export PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS='http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],http://172.*:[*],https://pal.linuxred.lat,https://*.linuxred.lat'
 ```
 
 La app usa `sudo -n` por defecto. Esto evita que la web pida password. Si falta una regla sudoers, la accion falla y muestra el comando que no tiene permiso.
+
+`PALWORLD_CORS_ALLOWED_ORIGIN` y `PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS` solo son necesarios cuando el frontend corre en un origen distinto al backend, por ejemplo durante desarrollo con Vite. Si ves `Invalid CORS request`, agrega el origen real del navegador. Ejemplos:
+
+```bash
+export PALWORLD_CORS_ALLOWED_ORIGIN=http://TU_IP:5173
+export PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS='http://TU_IP:[*],https://panel.example.com:[*]'
+```
+
+Para Cloudflare Tunnel con el dominio `https://pal.linuxred.lat`, en el servicio systemd del backend puedes dejar:
+
+```ini
+Environment=PALWORLD_CORS_ALLOWED_ORIGIN=https://pal.linuxred.lat
+Environment=PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS=https://pal.linuxred.lat,https://*.linuxred.lat
+```
+
+Despues aplica:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart palworld-admin.service
+```
+
+En produccion con Nginx sirviendo frontend y proxyando `/api`, `/login` y `/logout` en el mismo dominio, normalmente no hace falta cambiar CORS. No abras el frontend con `file://`; usa Nginx o `pnpm dev`.
 
 ## Servicio systemd para el panel
 
@@ -123,6 +191,119 @@ sudo chown -R palworld-admin:palworld-admin /opt/palworld-admin
 sudo nano /etc/systemd/system/palworld-admin.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now palworld-admin.service
+```
+
+## Frontend React
+
+La nueva interfaz vive en:
+
+```text
+frontend/
+```
+
+Tecnologias usadas:
+
+- React con Vite.
+- Tailwind CSS.
+- Componentes locales estilo shadcn/ui.
+- Lucide para iconos.
+- Recharts para graficas con datos reales.
+- API REST contra Spring Boot.
+- Selector de tema: sistema, claro y oscuro.
+
+El frontend no almacena ni muestra passwords RCON. Para RCON solo consulta si existe password configurado y envia cambios al backend por sesion autenticada.
+
+Variables disponibles:
+
+```bash
+# Dejar vacio si Nginx sirve frontend y API en el mismo dominio
+VITE_API_BASE_URL=
+
+# Solo para desarrollo con Vite
+VITE_API_PROXY_TARGET=http://localhost:8080
+```
+
+## Despliegue Debian 13 con Nginx
+
+Ejemplo de build en el servidor:
+
+```bash
+cd /opt/palworld-admin-src
+mvn clean package
+cd frontend
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+Copiar artefactos:
+
+```bash
+sudo mkdir -p /opt/palworld-admin /var/www/palworld-admin
+sudo cp /opt/palworld-admin-src/target/palworld-admin-0.1.0.jar /opt/palworld-admin/
+sudo rsync -a --delete /opt/palworld-admin-src/frontend/dist/ /var/www/palworld-admin/
+sudo chown -R palworld-admin:palworld-admin /opt/palworld-admin
+sudo chown -R www-data:www-data /var/www/palworld-admin
+```
+
+Ejemplo Nginx:
+
+```nginx
+server {
+    listen 80;
+    server_name panel.example.com;
+
+    root /var/www/palworld-admin;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /login {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /logout {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /css/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+```
+
+Validar y recargar:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+El servicio systemd del backend no necesita cambiar si ya ejecuta el JAR en `127.0.0.1:8080` o `0.0.0.0:8080`. Si expones todo por Nginx, se recomienda dejar el backend escuchando solo en localhost:
+
+```ini
+ExecStart=/usr/bin/java -jar /opt/palworld-admin/palworld-admin-0.1.0.jar --server.address=127.0.0.1 --server.port=8080
 ```
 
 ## Usuario Linux para servidores Palworld
@@ -224,6 +405,58 @@ docker compose -p <project> -f <rootPath>/docker-compose.yml up -d
 ```
 
 Para Docker no se genera servicio systemd del servidor.
+
+## RCON
+
+Cada servidor puede guardar una configuracion RCON propia:
+
+- IP / host
+- Puerto
+- Password
+- Activo / inactivo
+
+En el dashboard, cada fila de servidor tiene un boton **RCON** que abre una pantalla de configuracion para ese servidor. Desde esa pantalla puedes:
+
+- Guardar o editar IP / host.
+- Guardar o editar puerto.
+- Guardar o cambiar el password.
+- Activar o desactivar RCON para ese servidor.
+
+El dashboard no muestra IP ni password RCON. En el bloque **RCON y jugadores** puedes elegir el servidor desde un combo y operar solo sobre el servidor seleccionado:
+
+- Ver jugadores conectados.
+- Refrescar manualmente la lista.
+- Enviar mensajes Broadcast.
+
+La lista de jugadores se actualiza automaticamente cada 1 minuto. El panel usa el comando RCON:
+
+```text
+ShowPlayers
+```
+
+Para mensajes usa:
+
+```text
+Broadcast <mensaje>
+```
+
+No se exponen comandos de teleport ni comandos arbitrarios desde la interfaz, porque algunos comandos requieren ser ejecutados por un administrador dentro del juego y no sirven desde RCON.
+
+Para que RCON funcione, el servidor Palworld debe tener RCON habilitado en `PalWorldSettings.ini`, por ejemplo:
+
+```text
+RCONEnabled=True
+RCONPort=25575
+AdminPassword="password-rcon"
+```
+
+El puerto RCON debe estar accesible desde donde corre el panel. Si el panel corre en el mismo servidor, normalmente puedes usar:
+
+```text
+127.0.0.1
+```
+
+No abras RCON a internet sin firewall o VPN.
 
 ## Permisos sudo sin password
 
@@ -349,8 +582,48 @@ Si el servidor esta encendido, el panel:
 2. Guarda el archivo completo sin eliminar opciones no editadas.
 3. Inicia el servidor nuevamente.
 
-## Backups
+## Perfiles de configuracion
 
+Los perfiles permiten guardar configuraciones completas reutilizables de `PalWorldSettings.ini` para eventos, pruebas o cambios temporales. En el panel moderno hay una seccion **Perfiles** y cada fila de servidor tambien tiene boton **Perfiles**.
+
+Por servidor se puede:
+
+- Crear un perfil desde la configuracion activa.
+- Ver, editar y duplicar perfiles.
+- Aplicar un perfil al archivo activo.
+- Restaurar `default`.
+- Exportar e importar perfiles JSON.
+- Ver diferencias entre el INI activo y el perfil seleccionado.
+
+El perfil `default` se crea automaticamente la primera vez que se abre la lista de perfiles de un servidor. Se captura desde el `PalWorldSettings.ini` activo, se marca como predeterminado y activo, y no se vuelve a sobrescribir en arranques posteriores. `default` no puede eliminarse.
+
+Los perfiles se guardan como JSON por servidor:
+
+```text
+data/config-profiles/server-<ID>/config-profiles.json
+data/config-profiles/server-<ID>/profiles/<perfil>.json
+```
+
+Antes de aplicar un perfil se crea un respaldo:
+
+```text
+data/config-profile-backups/server-<ID>/
+```
+
+La escritura del perfil, indice, respaldo y archivo activo usa archivos temporales y movimiento atomico cuando el sistema de archivos lo permite. Si el contenido activo ya no coincide con el hash normalizado del perfil marcado como activo, el panel muestra:
+
+```text
+Configuracion modificada fuera del perfil activo.
+```
+
+Los perfiles contienen la configuracion completa administrada por el editor, pero no almacenan secretos. `AdminPassword` y `ServerPassword` se sustituyen por marcador interno al guardar/exportar un perfil. Al aplicar, esos valores se recuperan del `PalWorldSettings.ini` activo para no exponerlos ni borrarlos.
+
+Aplicar un perfil no reinicia Palworld automaticamente. Despues de aplicar, reinicia el servidor desde la accion normal del panel para que Palworld tome todos los cambios.
+
+Las acciones de crear, editar, duplicar, aplicar, restaurar, importar, exportar y eliminar perfiles requieren rol `ADMIN` en el panel. Este repositorio no contiene bot ni comandos Discord; la integracion se implemento en la arquitectura real disponible: API REST de Spring Boot y pantalla React.
+
+## Backups
+ 
 El panel detecta backups en:
 
 ```text
@@ -366,10 +639,21 @@ Al restaurar:
 5. Corrige permisos con el usuario/grupo configurados.
 6. Puede iniciar el servidor al terminar.
 
+## Actividad reciente
+
+La actividad reciente del dashboard tiene paginacion. Puedes elegir mostrar:
+
+- 10 lineas
+- 50 lineas
+- 100 lineas
+
+Esto evita que el bloque crezca sin limite cuando el panel lleva mucho tiempo en uso.
+
 ## Seguridad
 
 - No subas `data/`, `target/`, `tools/`, logs ni archivos de mundo al repositorio.
 - Cambia `PALWORLD_ADMIN_PASSWORD` antes de produccion.
+- No publiques passwords RCON.
 - No uses `/`, `/home` ni `/opt` como ruta raiz del servidor.
 - Usa rutas especificas como `/opt/palworld-servers/server01`.
 - Las contrasenas del panel se almacenan con BCrypt.

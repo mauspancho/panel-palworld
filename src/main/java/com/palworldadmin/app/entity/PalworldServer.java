@@ -12,6 +12,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -35,6 +36,15 @@ public class PalworldServer {
     private String linuxGroup;
     private Integer publicPort;
 
+    @Column(columnDefinition = "boolean default false")
+    private Boolean rconEnabled = false;
+
+    private String rconHost;
+    private Integer rconPort;
+
+    @Column(length = 1024)
+    private String rconPassword;
+
     @NotBlank
     @Column(nullable = false, length = 1024)
     private String rootPath;
@@ -43,6 +53,15 @@ public class PalworldServer {
 
     @Column(length = 2048)
     private String updateCommand;
+
+    @Column(columnDefinition = "boolean default false")
+    private Boolean autoRestartEnabled = false;
+
+    @Column(length = 5)
+    private String autoRestartTime;
+
+    private LocalDate autoRestartLastWarningDate;
+    private LocalDate autoRestartLastRunDate;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -131,6 +150,42 @@ public class PalworldServer {
         this.publicPort = publicPort;
     }
 
+    public boolean isRconEnabled() {
+        return Boolean.TRUE.equals(rconEnabled);
+    }
+
+    public void setRconEnabled(boolean rconEnabled) {
+        this.rconEnabled = rconEnabled;
+    }
+
+    public void setRconEnabled(Boolean rconEnabled) {
+        this.rconEnabled = Boolean.TRUE.equals(rconEnabled);
+    }
+
+    public String getRconHost() {
+        return rconHost;
+    }
+
+    public void setRconHost(String rconHost) {
+        this.rconHost = rconHost;
+    }
+
+    public Integer getRconPort() {
+        return rconPort;
+    }
+
+    public void setRconPort(Integer rconPort) {
+        this.rconPort = rconPort;
+    }
+
+    public String getRconPassword() {
+        return rconPassword;
+    }
+
+    public void setRconPassword(String rconPassword) {
+        this.rconPassword = rconPassword;
+    }
+
     public String getRootPath() {
         return rootPath;
     }
@@ -153,6 +208,42 @@ public class PalworldServer {
 
     public void setUpdateCommand(String updateCommand) {
         this.updateCommand = updateCommand;
+    }
+
+    public boolean isAutoRestartEnabled() {
+        return Boolean.TRUE.equals(autoRestartEnabled);
+    }
+
+    public void setAutoRestartEnabled(boolean autoRestartEnabled) {
+        this.autoRestartEnabled = autoRestartEnabled;
+    }
+
+    public void setAutoRestartEnabled(Boolean autoRestartEnabled) {
+        this.autoRestartEnabled = Boolean.TRUE.equals(autoRestartEnabled);
+    }
+
+    public String getAutoRestartTime() {
+        return autoRestartTime;
+    }
+
+    public void setAutoRestartTime(String autoRestartTime) {
+        this.autoRestartTime = autoRestartTime;
+    }
+
+    public LocalDate getAutoRestartLastWarningDate() {
+        return autoRestartLastWarningDate;
+    }
+
+    public void setAutoRestartLastWarningDate(LocalDate autoRestartLastWarningDate) {
+        this.autoRestartLastWarningDate = autoRestartLastWarningDate;
+    }
+
+    public LocalDate getAutoRestartLastRunDate() {
+        return autoRestartLastRunDate;
+    }
+
+    public void setAutoRestartLastRunDate(LocalDate autoRestartLastRunDate) {
+        this.autoRestartLastRunDate = autoRestartLastRunDate;
     }
 
     public LocalDateTime getCreatedAt() {

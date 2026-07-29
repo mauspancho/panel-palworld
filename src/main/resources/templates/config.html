@@ -1,42 +1,79 @@
 <!doctype html>
-<html lang="es" xmlns:th="http://www.thymeleaf.org">
+<html lang="es" data-theme="dark" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Configuracion Palworld</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link th:href="@{/css/app.css}" rel="stylesheet">
+    <script>
+        (function () {
+            var selectedTheme = "dark";
+            function systemTheme() {
+                return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            }
+            function applyTheme(theme) {
+                selectedTheme = theme;
+                document.documentElement.dataset.theme = theme === "system" ? systemTheme() : theme;
+                document.querySelectorAll("[data-theme-option]").forEach(function (button) {
+                    button.setAttribute("aria-pressed", String(button.dataset.themeOption === selectedTheme));
+                });
+            }
+            window.setConfigTheme = applyTheme;
+            window.addEventListener("DOMContentLoaded", function () {
+                applyTheme("dark");
+                window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+                    if (selectedTheme === "system") {
+                        applyTheme("system");
+                    }
+                });
+            });
+        })();
+    </script>
 </head>
-<body>
-<nav class="navbar navbar-expand bg-white">
+<body class="legacy-app">
+<nav class="app-navbar">
     <div class="container-fluid page-shell">
-        <a class="navbar-brand fw-semibold" th:href="@{/}">Palworld Admin</a>
+        <a class="app-brand" th:href="@{/}">
+            <span class="brand-mark" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"/>
+                </svg>
+            </span>
+            Palworld Admin
+        </a>
+        <div class="theme-toggle" aria-label="Tema visual">
+            <button type="button" data-theme-option="system" onclick="window.setConfigTheme('system')">Sistema</button>
+            <button type="button" data-theme-option="light" onclick="window.setConfigTheme('light')">Claro</button>
+            <button type="button" data-theme-option="dark" onclick="window.setConfigTheme('dark')">Oscuro</button>
+        </div>
     </div>
 </nav>
 <main class="container-fluid page-shell py-4">
-    <div th:if="${success}" class="alert alert-success" th:text="${success}"></div>
-    <div th:if="${error}" class="alert alert-danger" th:text="${error}"></div>
+    <div th:if="${success}" class="alert app-alert app-alert-success" th:text="${success}"></div>
+    <div th:if="${error}" class="alert app-alert app-alert-danger" th:text="${error}"></div>
 
-    <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="page-toolbar">
         <div>
-            <h1 class="h3 mb-1" th:text="'Configuracion - ' + ${view.server.name}"></h1>
-            <div class="small text-secondary" th:text="${view.paths.settingsFile}"></div>
+            <div class="eyebrow">PalWorldSettings.ini</div>
+            <h1 th:text="'Configuracion - ' + ${view.server.name}"></h1>
+            <div class="path-line" th:text="${view.paths.settingsFile}"></div>
         </div>
-        <a class="btn btn-outline-secondary" th:href="@{/}">Volver</a>
+        <a class="btn app-btn app-btn-secondary" th:href="@{/}">Volver</a>
     </div>
 
-    <div th:if="${!view.settingsExists}" class="alert alert-warning">
-        PalWorldSettings.ini no existe todavia. Normalmente se genera despues de iniciar el servidor por primera vez.
-        <form th:if="${view.defaultSettingsExists}" class="d-inline ms-2" th:action="@{/servers/{id}/config/copy-default(id=${view.server.id})}" method="post">
+    <div th:if="${!view.settingsExists}" class="alert app-alert app-alert-warning">
+        <span>PalWorldSettings.ini no existe todavia. Normalmente se genera despues de iniciar el servidor por primera vez.</span>
+        <form th:if="${view.defaultSettingsExists}" class="inline-form" th:action="@{/servers/{id}/config/copy-default(id=${view.server.id})}" method="post">
             <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-            <button class="btn btn-sm btn-warning">Copiar DefaultPalWorldSettings.ini</button>
+            <button class="btn app-btn app-btn-warning app-btn-sm">Copiar DefaultPalWorldSettings.ini</button>
         </form>
     </div>
-    <div th:if="${status.name() == 'RUNNING'}" class="alert alert-info">
+    <div th:if="${status.name() == 'RUNNING'}" class="alert app-alert app-alert-info">
         Al guardar, el panel detendra el servidor, escribira PalWorldSettings.ini y lo iniciara nuevamente.
     </div>
 
-    <ul class="nav nav-tabs" id="configTabs" role="tablist">
+    <ul class="nav config-tabs" id="configTabs" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#form-mode" type="button">Formulario</button>
         </li>
@@ -44,7 +81,7 @@
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#advanced-mode" type="button">Avanzado</button>
         </li>
     </ul>
-    <div class="tab-content bg-white border border-top-0 rounded-bottom-2 p-4">
+    <div class="tab-content config-panel">
         <section class="tab-pane fade show active" id="form-mode">
             <form th:action="@{/servers/{id}/config/form(id=${view.server.id})}" method="post">
                 <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
@@ -54,14 +91,14 @@
                         <input class="form-control" th:id="${field.name}" th:name="${field.name}" th:value="${field.value}">
                     </div>
                 </div>
-                <button class="btn btn-primary mt-4">Guardar formulario</button>
+                <button class="btn app-btn app-btn-primary mt-4">Guardar formulario</button>
             </form>
         </section>
         <section class="tab-pane fade" id="advanced-mode">
             <form th:action="@{/servers/{id}/config/advanced(id=${view.server.id})}" method="post">
                 <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
                 <textarea class="form-control config-editor" name="content" rows="22" required th:text="${view.rawContent}"></textarea>
-                <button class="btn btn-primary mt-4">Guardar avanzado</button>
+                <button class="btn app-btn app-btn-primary mt-4">Guardar avanzado</button>
             </form>
         </section>
     </div>

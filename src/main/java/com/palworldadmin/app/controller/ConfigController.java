@@ -5,6 +5,7 @@ import com.palworldadmin.app.service.PalworldServerService;
 import com.palworldadmin.app.service.configeditor.ConfigEditorService;
 import com.palworldadmin.app.util.CommandResult;
 import org.springframework.stereotype.Controller;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +35,7 @@ public class ConfigController {
     }
 
     @PostMapping("/servers/{id}/config/copy-default")
+    @PreAuthorize("hasRole('ADMIN')")
     public String copyDefault(@PathVariable Long id, Principal principal, RedirectAttributes redirect) {
         try {
             String message = saveWithServerCycle(id, principal, () -> configs.copyDefault(id));
@@ -45,6 +47,7 @@ public class ConfigController {
     }
 
     @PostMapping("/servers/{id}/config/form")
+    @PreAuthorize("hasRole('ADMIN')")
     public String saveForm(@PathVariable Long id, @RequestParam Map<String, String> params, Principal principal, RedirectAttributes redirect) {
         try {
             String message = saveWithServerCycle(id, principal, () -> configs.saveForm(id, params));
@@ -56,6 +59,7 @@ public class ConfigController {
     }
 
     @PostMapping("/servers/{id}/config/advanced")
+    @PreAuthorize("hasRole('ADMIN')")
     public String saveAdvanced(@PathVariable Long id, @RequestParam String content, Principal principal, RedirectAttributes redirect) {
         try {
             String message = saveWithServerCycle(id, principal, () -> configs.saveAdvanced(id, content));

@@ -1,13 +1,326 @@
-body {
-    background: #f6f7f9;
+:root {
+    color-scheme: light;
+    --bg-0: #f8fafc;
+    --bg-1: #eef6fb;
+    --bg-2: #f7f2ff;
+    --card: #ffffff;
+    --card-soft: rgba(255, 255, 255, 0.88);
+    --text: #0f172a;
+    --muted: #64748b;
+    --border: #d8e1ec;
+    --input: #ffffff;
+    --primary: #0891b2;
+    --primary-text: #f8fafc;
+    --secondary: #e8eef7;
+    --secondary-text: #172033;
+    --warning: #d97706;
+    --warning-bg: rgba(217, 119, 6, 0.11);
+    --danger: #be123c;
+    --danger-bg: rgba(190, 18, 60, 0.10);
+    --success: #047857;
+    --success-bg: rgba(4, 120, 87, 0.10);
+    --info: #0e7490;
+    --info-bg: rgba(14, 116, 144, 0.10);
+    --shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
 }
 
-.navbar {
-    border-bottom: 1px solid #dde2e8;
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-0: #05070c;
+    --bg-1: #09111e;
+    --bg-2: #070a12;
+    --card: #0f192a;
+    --card-soft: rgba(15, 25, 42, 0.92);
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --border: #273449;
+    --input: #101b2e;
+    --primary: #22d3ee;
+    --primary-text: #06111a;
+    --secondary: #1d2a3d;
+    --secondary-text: #dbeafe;
+    --warning: #fbbf24;
+    --warning-bg: rgba(251, 191, 36, 0.10);
+    --danger: #fb7185;
+    --danger-bg: rgba(251, 113, 133, 0.10);
+    --success: #34d399;
+    --success-bg: rgba(52, 211, 153, 0.10);
+    --info: #67e8f9;
+    --info-bg: rgba(103, 232, 249, 0.10);
+    --shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background:
+        radial-gradient(circle at top left, rgba(8, 145, 178, 0.13), transparent 28rem),
+        radial-gradient(circle at 78% 0%, rgba(109, 40, 217, 0.10), transparent 30rem),
+        linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 48%, var(--bg-2) 100%);
+    color: var(--text);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="dark"] body {
+    background:
+        radial-gradient(circle at top left, rgba(22, 202, 244, 0.14), transparent 28rem),
+        radial-gradient(circle at 78% 0%, rgba(126, 87, 255, 0.16), transparent 30rem),
+        linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 52%, var(--bg-2) 100%);
+}
+
+.app-navbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 86%, transparent);
+    backdrop-filter: blur(18px);
+}
+
+.app-navbar .page-shell {
+    display: flex;
+    min-height: 4rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.app-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.app-brand:hover {
+    color: var(--text);
+}
+
+.brand-mark {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--primary) 34%, transparent);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--primary) 14%, transparent);
+    color: var(--primary);
 }
 
 .page-shell {
     max-width: 1320px;
+}
+
+.theme-toggle {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+}
+
+.theme-toggle button {
+    height: 2rem;
+    border: 0;
+    border-radius: 0.35rem;
+    padding: 0 0.65rem;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+}
+
+.theme-toggle button[aria-pressed="true"] {
+    background: var(--primary);
+    color: var(--primary-text);
+}
+
+.page-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.page-toolbar h1 {
+    margin: 0.15rem 0 0.35rem;
+    color: var(--text);
+    font-size: clamp(1.45rem, 2.8vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: 0;
+}
+
+.eyebrow {
+    color: var(--primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.path-line {
+    max-width: min(100vw - 2rem, 920px);
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+}
+
+.app-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid;
+    border-radius: 0.5rem;
+    padding: 0.8rem 0.95rem;
+    color: var(--text);
+}
+
+.app-alert-success {
+    border-color: color-mix(in srgb, var(--success) 36%, transparent);
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.app-alert-danger {
+    border-color: color-mix(in srgb, var(--danger) 36%, transparent);
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.app-alert-warning {
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    background: var(--warning-bg);
+    color: var(--warning);
+}
+
+.app-alert-info {
+    border-color: color-mix(in srgb, var(--info) 40%, transparent);
+    background: var(--info-bg);
+    color: var(--info);
+}
+
+.inline-form {
+    display: inline-flex;
+    margin-left: auto;
+}
+
+.app-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.45rem;
+    border: 1px solid transparent;
+    font-weight: 600;
+}
+
+.app-btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-text);
+}
+
+.app-btn-primary:hover,
+.app-btn-primary:focus {
+    background: color-mix(in srgb, var(--primary) 88%, black);
+    border-color: color-mix(in srgb, var(--primary) 88%, black);
+    color: var(--primary-text);
+}
+
+.app-btn-secondary {
+    background: color-mix(in srgb, var(--secondary) 78%, transparent);
+    border-color: var(--border);
+    color: var(--secondary-text);
+}
+
+.app-btn-secondary:hover,
+.app-btn-secondary:focus {
+    background: color-mix(in srgb, var(--secondary) 92%, transparent);
+    border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+    color: var(--secondary-text);
+}
+
+.app-btn-warning {
+    background: var(--warning);
+    border-color: var(--warning);
+    color: #111827;
+}
+
+.app-btn-sm {
+    min-height: 2rem;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.85rem;
+}
+
+.config-tabs {
+    gap: 0.4rem;
+    border: 0;
+}
+
+.config-tabs .nav-link {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem 0.5rem 0 0;
+    background: color-mix(in srgb, var(--card) 60%, transparent);
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.config-tabs .nav-link:hover {
+    border-color: color-mix(in srgb, var(--primary) 36%, var(--border));
+    color: var(--text);
+}
+
+.config-tabs .nav-link.active {
+    border-color: var(--border);
+    border-bottom-color: color-mix(in srgb, var(--card) 94%, transparent);
+    background: var(--card-soft);
+    color: var(--primary);
+}
+
+.config-panel {
+    border: 1px solid var(--border);
+    border-radius: 0 0.5rem 0.5rem 0.5rem;
+    background: var(--card-soft);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+}
+
+.form-label {
+    margin-bottom: 0.35rem;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.form-control,
+.form-select {
+    border-color: var(--border);
+    border-radius: 0.45rem;
+    background-color: var(--input);
+    color: var(--text);
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: color-mix(in srgb, var(--primary) 70%, var(--border));
+    background-color: var(--input);
+    color: var(--text);
+    box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.form-control::placeholder {
+    color: var(--muted);
 }
 
 .table td,
@@ -19,13 +332,61 @@ body {
     min-width: 112px;
 }
 
+.rcon-card {
+    scroll-margin-top: 88px;
+}
+
+.rcon-player-list {
+    min-height: 116px;
+}
+
+.rcon-player-list td,
+.rcon-player-list th {
+    word-break: break-word;
+}
+
 .log-output,
 .config-editor {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: 0.875rem;
 }
 
+.config-editor {
+    min-height: 34rem;
+    line-height: 1.55;
+    resize: vertical;
+}
+
 .log-output {
     min-height: 420px;
     white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+    .app-navbar .page-shell,
+    .page-toolbar,
+    .app-alert {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .theme-toggle {
+        width: 100%;
+    }
+
+    .theme-toggle button {
+        flex: 1 1 0;
+    }
+
+    .inline-form {
+        margin-left: 0;
+    }
+
+    .app-btn {
+        width: 100%;
+    }
+
+    .config-panel {
+        padding: 1rem;
+    }
 }

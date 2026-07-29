@@ -30,6 +30,10 @@ palworld-admin:
   cp-command: ${PALWORLD_CP_COMMAND:/usr/bin/cp}
   chown-command: ${PALWORLD_CHOWN_COMMAND:/usr/bin/chown}
   chmod-command: ${PALWORLD_CHMOD_COMMAND:/usr/bin/chmod}
+  cors-allowed-origins:
+    - ${PALWORLD_CORS_ALLOWED_ORIGIN:http://localhost:5173}
+  cors-allowed-origin-patterns:
+    - ${PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],http://172.*:[*],https://localhost:[*],https://127.0.0.1:[*],https://192.168.*:[*],https://10.*:[*],https://172.*:[*],https://pal.linuxred.lat,https://*.linuxred.lat,https://*.trycloudflare.com,https://*.cfargotunnel.com,https://*.cloudflareaccess.com}
 
 palworld:
   defaults:

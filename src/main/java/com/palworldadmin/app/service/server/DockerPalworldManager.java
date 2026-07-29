@@ -68,7 +68,7 @@ public class DockerPalworldManager implements PalworldServerManager {
     @Override
     public CommandResult logs(PalworldServer server, int lines) {
         String container = PathSecurityUtil.requireSafeContainerName(server.getContainerName());
-        return commands.execute(List.of("docker", "logs", "--tail", String.valueOf(Math.max(1, Math.min(lines, 1000))), container), normalTimeout());
+        return commands.execute(List.of("docker", "logs", "--tail", String.valueOf(Math.max(1, Math.min(lines, 10000))), container), normalTimeout());
     }
 
     @Override

@@ -8,3 +8,7 @@ mvn-local.ps1
 *.iml
 *.log
 *.tmp
+*.tsbuildinfo
+frontend/node_modules/
+frontend/dist/
+.pnpm-store/

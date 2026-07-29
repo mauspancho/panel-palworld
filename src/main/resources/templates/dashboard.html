@@ -3,6 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
     <title>Palworld Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link th:href="@{/css/app.css}" rel="stylesheet">
@@ -33,7 +35,7 @@
                 <th>Nombre</th>
                 <th>Tipo</th>
                 <th>Contenedor / servicio</th>
-                <th>Ruta raíz</th>
+                <th>Ruta raiz</th>
                 <th>Estado</th>
                 <th class="text-end">Acciones</th>
             </tr>
@@ -46,13 +48,13 @@
                 <td>
                     <a class="fw-semibold text-decoration-none" th:href="@{/servers/{id}/edit(id=${row.server.id})}" th:text="${row.server.name}"></a>
                 </td>
-                <td><span class="badge text-bg-secondary" th:text="${row.server.type}"></span></td>
-                <td th:text="${row.server.type.name() == 'DOCKER' ? row.server.containerName : row.server.serviceName}"></td>
+                <td><span class="badge text-bg-secondary" th:text="${row.server.type != null && row.server.type.isSystemd() ? 'SYSTEMD' : row.server.type}"></span></td>
+                <td th:text="${row.server.type != null && row.server.type.name() == 'DOCKER' ? row.server.containerName : row.server.serviceName}"></td>
                 <td class="small text-secondary" th:text="${row.server.rootPath}"></td>
                 <td>
                     <span class="badge status-pill"
-                          th:classappend="${row.status.name() == 'RUNNING'} ? ' text-bg-success' : (${row.status.name() == 'STOPPED'} ? ' text-bg-secondary' : (${row.status.name() == 'ERROR'} ? ' text-bg-danger' : ' text-bg-warning'))"
-                          th:text="${row.status.label}"></span>
+                          th:classappend="${row.status != null && row.status.name() == 'RUNNING'} ? ' text-bg-success' : (${row.status != null && row.status.name() == 'STOPPED'} ? ' text-bg-secondary' : (${row.status != null && row.status.name() == 'ERROR'} ? ' text-bg-danger' : ' text-bg-warning'))"
+                          th:text="${row.status == null ? 'Desconocido' : row.status.label}"></span>
                 </td>
                 <td>
                     <div class="d-flex flex-wrap gap-1 justify-content-end">
@@ -74,14 +76,15 @@
                         </form>
                         <form th:action="@{/servers/{id}/install(id=${row.server.id})}" method="post">
                             <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-                            <button class="btn btn-sm btn-outline-warning" onclick="return confirm('Esto preparara/levantara el servidor usando los datos registrados. ¿Continuar?')">Instalar/crear</button>
+                            <button class="btn btn-sm btn-outline-warning" onclick="return confirm('Esto preparara o levantara el servidor usando los datos registrados. Continuar?')">Instalar/crear</button>
                         </form>
-                        <a class="btn btn-sm btn-outline-secondary" th:href="@{/servers/{id}/config(id=${row.server.id})}">Configuración</a>
+                        <a class="btn btn-sm btn-outline-info" th:href="@{/servers/{id}/rcon(id=${row.server.id})}">RCON</a>
+                        <a class="btn btn-sm btn-outline-secondary" th:href="@{/servers/{id}/config(id=${row.server.id})}">Configuracion</a>
                         <a class="btn btn-sm btn-outline-secondary" th:href="@{/servers/{id}/backups(id=${row.server.id})}">Backups</a>
                         <a class="btn btn-sm btn-outline-secondary" th:href="@{/servers/{id}/logs(id=${row.server.id})}">Logs</a>
                         <form th:action="@{/servers/{id}/delete(id=${row.server.id})}" method="post">
                             <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
-                            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Esto solo quitara el servidor de la lista del panel. ¿Continuar?')">Eliminar</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="return confirm('Esto solo quitara el servidor de la lista del panel. Continuar?')">Eliminar</button>
                         </form>
                     </div>
                 </td>
@@ -90,24 +93,230 @@
         </table>
     </div>
 
-    <h2 class="h5 mt-4">Actividad reciente</h2>
-    <div class="bg-white border rounded-2 overflow-hidden">
-        <table class="table table-sm mb-0">
-            <thead class="table-light">
-            <tr><th>Fecha</th><th>Servidor</th><th>Acción</th><th>Estado</th><th>Usuario</th></tr>
-            </thead>
-            <tbody>
-            <tr th:if="${recentLogs.isEmpty()}"><td colspan="5" class="text-center text-secondary py-4">Sin actividad.</td></tr>
-            <tr th:each="log : ${recentLogs}">
-                <td th:text="${#temporals.format(log.startedAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
-                <td th:text="${log.server.name}"></td>
-                <td th:text="${log.action}"></td>
-                <td th:text="${log.status}"></td>
-                <td th:text="${log.username}"></td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
+    <section class="mt-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="h5 mb-0">RCON y jugadores</h2>
+            <span class="small text-secondary">Refresco automatico cada 1 minuto</span>
+        </div>
+        <div th:if="${rows.isEmpty()}" class="bg-white border rounded-2 p-4 text-center text-secondary">
+            Registra un servidor para configurar RCON.
+        </div>
+        <div th:if="${!rows.isEmpty()}" class="bg-white border rounded-2 p-3 rcon-card">
+            <div class="row g-3 align-items-end mb-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="rconServerSelect">Servidor RCON</label>
+                    <select class="form-select" id="rconServerSelect">
+                        <option th:each="row : ${rows}"
+                                th:value="${row.server.id}"
+                                th:text="${row.server.name}"
+                                th:data-rcon-enabled="${row.server.rconEnabled}"></option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-primary" id="rconRefreshButton" type="button">Actualizar jugadores</button>
+                        <a class="btn btn-outline-secondary" id="rconConfigLink" href="#">Configurar RCON</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-7">
+                    <div class="rcon-status small text-secondary mb-2">Selecciona un servidor.</div>
+                    <div class="rcon-player-list border rounded-2 overflow-hidden">
+                        <div class="text-secondary text-center py-4">Sin datos de jugadores.</div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <form class="rcon-message-form">
+                        <label class="form-label" for="rconDashboardMessage">Mensaje Broadcast</label>
+                        <textarea class="form-control mb-2" rows="3" maxlength="300"
+                                  id="rconDashboardMessage"
+                                  name="message" placeholder="Reinicio en 5 minutos"></textarea>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn btn-outline-success" type="submit">Enviar mensaje</button>
+                            <span class="rcon-message-status small text-secondary"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="mt-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <h2 class="h5 mb-0">Actividad reciente</h2>
+            <form class="d-flex align-items-center gap-2" th:action="@{/}" method="get">
+                <label class="form-label mb-0 small" for="logSize">Lineas</label>
+                <select class="form-select form-select-sm" id="logSize" name="logSize" onchange="this.form.submit()">
+                    <option th:each="size : ${logSizes}" th:value="${size}" th:text="${size}" th:selected="${size == logSize}"></option>
+                </select>
+            </form>
+        </div>
+        <div class="bg-white border rounded-2 overflow-hidden">
+            <table class="table table-sm mb-0">
+                <thead class="table-light">
+                <tr><th>Fecha</th><th>Servidor</th><th>Accion</th><th>Estado</th><th>Usuario</th></tr>
+                </thead>
+                <tbody>
+                <tr th:if="${recentLogs.empty}"><td colspan="5" class="text-center text-secondary py-4">Sin actividad.</td></tr>
+                <tr th:each="log : ${recentLogs.content}">
+                    <td th:text="${log.startedAt == null ? '-' : #temporals.format(log.startedAt, 'yyyy-MM-dd HH:mm:ss')}"></td>
+                    <td th:text="${#strings.defaultString(log.serverName, 'Servidor eliminado')}"></td>
+                    <td th:text="${#strings.defaultString(log.action, '-')}"></td>
+                    <td th:text="${log.status == null ? '-' : log.status}"></td>
+                    <td th:text="${#strings.defaultString(log.username, '-')}"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+            <div class="small text-secondary"
+                 th:text="'Pagina ' + (${recentLogs.number} + 1) + ' de ' + (${recentLogs.totalPages == 0 ? 1 : recentLogs.totalPages})"></div>
+            <div class="btn-group">
+                <a class="btn btn-sm btn-outline-secondary"
+                   th:classappend="${recentLogs.first} ? ' disabled'"
+                   th:href="@{/(logPage=${recentLogs.number - 1}, logSize=${logSize})}">Anterior</a>
+                <a class="btn btn-sm btn-outline-secondary"
+                   th:classappend="${recentLogs.last} ? ' disabled'"
+                   th:href="@{/(logPage=${recentLogs.number + 1}, logSize=${logSize})}">Siguiente</a>
+            </div>
+        </div>
+    </section>
 </main>
+<script>
+    const csrfToken = document.querySelector('meta[name="_csrf"]').content;
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    const rconSelect = document.getElementById('rconServerSelect');
+    const rconConfigLink = document.getElementById('rconConfigLink');
+    const rconRefreshButton = document.getElementById('rconRefreshButton');
+    const rconStatus = document.querySelector('.rcon-status');
+    const rconList = document.querySelector('.rcon-player-list');
+    const rconMessageForm = document.querySelector('.rcon-message-form');
+    const rconMessageStatus = document.querySelector('.rcon-message-status');
+
+    function selectedRconServerId() {
+        return rconSelect ? rconSelect.value : null;
+    }
+
+    function selectedRconOption() {
+        return rconSelect && rconSelect.selectedOptions.length > 0 ? rconSelect.selectedOptions[0] : null;
+    }
+
+    function updateRconConfigLink() {
+        const serverId = selectedRconServerId();
+        if (rconConfigLink && serverId) {
+            rconConfigLink.href = `/servers/${serverId}/rcon`;
+        }
+    }
+
+    async function refreshSelectedRcon() {
+        const serverId = selectedRconServerId();
+        if (!serverId || !rconStatus || !rconList) {
+            return;
+        }
+        const option = selectedRconOption();
+        if (option && option.dataset.rconEnabled !== 'true') {
+            rconStatus.textContent = 'RCON no esta activo para este servidor.';
+            rconList.innerHTML = '<div class="text-secondary text-center py-4">Configura RCON para consultar jugadores.</div>';
+            return;
+        }
+
+        rconStatus.textContent = 'Actualizando jugadores...';
+        try {
+            const response = await fetch(`/api/servers/${serverId}/rcon/players`, {headers: {'Accept': 'application/json'}});
+            const data = await response.json();
+            if (!data.success) {
+                rconStatus.textContent = data.message || 'No se pudo consultar RCON.';
+                rconList.innerHTML = '<div class="text-secondary text-center py-4">Sin datos de jugadores.</div>';
+                return;
+            }
+            const when = data.refreshedAt ? new Date(data.refreshedAt).toLocaleTimeString() : new Date().toLocaleTimeString();
+            rconStatus.textContent = `${data.players.length} jugador(es) conectado(s). Actualizado ${when}.`;
+            if (data.players.length === 0) {
+                rconList.innerHTML = '<div class="text-secondary text-center py-4">No hay jugadores conectados.</div>';
+                return;
+            }
+            rconList.innerHTML = `
+                <table class="table table-sm mb-0">
+                    <thead class="table-light"><tr><th>Jugador</th><th>ID</th><th>Plataforma</th></tr></thead>
+                    <tbody>
+                        ${data.players.map(player => `
+                            <tr>
+                                <td>${escapeHtml(player.name)}</td>
+                                <td class="small text-secondary">${escapeHtml(player.playerId)}</td>
+                                <td class="small text-secondary">${escapeHtml(player.platformId)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`;
+        } catch (error) {
+            rconStatus.textContent = 'Error consultando RCON: ' + error.message;
+            rconList.innerHTML = '<div class="text-secondary text-center py-4">Sin datos de jugadores.</div>';
+        }
+    }
+
+    if (rconSelect) {
+        rconSelect.addEventListener('change', () => {
+            updateRconConfigLink();
+            refreshSelectedRcon();
+            if (rconMessageStatus) {
+                rconMessageStatus.textContent = '';
+            }
+        });
+        updateRconConfigLink();
+        refreshSelectedRcon();
+        setInterval(refreshSelectedRcon, 60000);
+    }
+
+    if (rconRefreshButton) {
+        rconRefreshButton.addEventListener('click', refreshSelectedRcon);
+    }
+
+    if (rconMessageForm) {
+        rconMessageForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const serverId = selectedRconServerId();
+            const message = rconMessageForm.querySelector('[name="message"]').value.trim();
+            if (!serverId || !rconMessageStatus) {
+                return;
+            }
+            if (!message) {
+                rconMessageStatus.textContent = 'Escribe un mensaje.';
+                return;
+            }
+            rconMessageStatus.textContent = 'Enviando...';
+            const body = new URLSearchParams({message});
+            try {
+                const response = await fetch(`/api/servers/${serverId}/rcon/broadcast`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        [csrfHeader]: csrfToken
+                    },
+                    body
+                });
+                const data = await response.json();
+                rconMessageStatus.textContent = data.message || (data.success ? 'Mensaje enviado.' : 'No se pudo enviar.');
+                if (data.success) {
+                    rconMessageForm.reset();
+                    refreshSelectedRcon();
+                }
+            } catch (error) {
+                rconMessageStatus.textContent = 'Error enviando mensaje: ' + error.message;
+            }
+        });
+    }
+</script>
 </body>
 </html>

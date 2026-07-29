@@ -17,6 +17,24 @@ public class AdminProperties {
     private String cpCommand = "/usr/bin/cp";
     private String chownCommand = "/usr/bin/chown";
     private String chmodCommand = "/usr/bin/chmod";
+    private List<String> corsAllowedOrigins = List.of("http://localhost:5173");
+    private List<String> corsAllowedOriginPatterns = List.of(
+            "http://localhost:[*]",
+            "http://127.0.0.1:[*]",
+            "http://192.168.*:[*]",
+            "http://10.*:[*]",
+            "http://172.*:[*]",
+            "https://localhost:[*]",
+            "https://127.0.0.1:[*]",
+            "https://192.168.*:[*]",
+            "https://10.*:[*]",
+            "https://172.*:[*]",
+            "https://pal.linuxred.lat",
+            "https://*.linuxred.lat",
+            "https://*.trycloudflare.com",
+            "https://*.cfargotunnel.com",
+            "https://*.cloudflareaccess.com"
+    );
 
     public InitialAdmin getInitialAdmin() {
         return initialAdmin;
@@ -105,6 +123,22 @@ public class AdminProperties {
 
     public void setChmodCommand(String chmodCommand) {
         this.chmodCommand = chmodCommand;
+    }
+
+    public List<String> getCorsAllowedOrigins() {
+        return corsAllowedOrigins;
+    }
+
+    public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
+        this.corsAllowedOrigins = corsAllowedOrigins;
+    }
+
+    public List<String> getCorsAllowedOriginPatterns() {
+        return corsAllowedOriginPatterns;
+    }
+
+    public void setCorsAllowedOriginPatterns(List<String> corsAllowedOriginPatterns) {
+        this.corsAllowedOriginPatterns = corsAllowedOriginPatterns;
     }
 
     public static class InitialAdmin {
