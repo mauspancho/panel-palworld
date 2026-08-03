@@ -43,11 +43,17 @@ public class RconController {
     @GetMapping("/api/servers/{id}/rcon/players")
     @ResponseBody
     public RconPlayersView players(@PathVariable Long id) {
-        RconPlayersView view = rcon.players(id);
-        if (view.success()) {
-            playerPresence.recordPresence(servers.get(id), view.players(), LocalDateTime.now());
+        var server = servers.get(id);
+        try {
+            RconPlayersView view = rcon.players(id);
+            if (view.success()) {
+                playerPresence.recordPresence(server, view.players(), LocalDateTime.now());
+            }
+            return view;
+        } catch (RuntimeException e) {
+            String message = e.getMessage() == null ? "No se pudo consultar RCON." : e.getMessage();
+            return RconPlayersView.failed(server.getId(), server.getName(), message);
         }
-        return view;
     }
 
     @PostMapping("/api/servers/{id}/rcon/broadcast")

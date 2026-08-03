@@ -271,6 +271,12 @@ export type ConfigProfileList = {
 
 export type ConfigProfileDetail = ConfigProfileSummary & {
   configuration: string;
+  fields: ConfigProfileField[];
+};
+
+export type ConfigProfileField = {
+  name: string;
+  value: string;
 };
 
 export type ConfigProfileDiffEntry = {

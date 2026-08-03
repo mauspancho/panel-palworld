@@ -25,14 +25,19 @@ public class SourceRconClient implements Closeable {
     private int requestId = 100;
 
     public SourceRconClient(String host, int port, String password) {
+        Socket connectingSocket = null;
         try {
-            this.socket = new Socket();
-            this.socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-            this.socket.setSoTimeout(READ_TIMEOUT_MS);
+            connectingSocket = new Socket();
+            connectingSocket.setKeepAlive(false);
+            connectingSocket.setTcpNoDelay(true);
+            connectingSocket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            connectingSocket.setSoTimeout(READ_TIMEOUT_MS);
+            this.socket = connectingSocket;
             this.input = new DataInputStream(socket.getInputStream());
             this.output = socket.getOutputStream();
             authenticate(password);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            closeQuietly(connectingSocket);
             throw new RconException("No se pudo conectar a RCON en " + host + ":" + port + ": " + e.getMessage(), e);
         }
     }
@@ -62,8 +67,30 @@ public class SourceRconClient implements Closeable {
     }
 
     @Override
-    public void close() throws IOException {
-        socket.close();
+    public void close() {
+        closeQuietly(output);
+        closeQuietly(input);
+        closeQuietly(socket);
+    }
+
+    private void closeQuietly(Socket socket) {
+        if (socket == null) {
+            return;
+        }
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void closeQuietly(Closeable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+        }
     }
 
     private void authenticate(String password) throws IOException {

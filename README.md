@@ -616,9 +616,9 @@ La escritura del perfil, indice, respaldo y archivo activo usa archivos temporal
 Configuracion modificada fuera del perfil activo.
 ```
 
-Los perfiles contienen la configuracion completa administrada por el editor, pero no almacenan secretos. `AdminPassword` y `ServerPassword` se sustituyen por marcador interno al guardar/exportar un perfil. Al aplicar, esos valores se recuperan del `PalWorldSettings.ini` activo para no exponerlos ni borrarlos.
+Los perfiles contienen la configuracion completa administrada por el editor, pero no almacenan secretos. `AdminPassword` y `ServerPassword` se guardan vacios al crear, editar, importar o exportar un perfil. Al aplicar un perfil, el panel inyecta `AdminPassword` desde la configuracion RCON almacenada para ese servidor; si no existe password RCON, conserva el valor activo del `PalWorldSettings.ini`. `ServerPassword` tambien se conserva desde el archivo activo cuando ya tiene un valor.
 
-Aplicar un perfil no reinicia Palworld automaticamente. Despues de aplicar, reinicia el servidor desde la accion normal del panel para que Palworld tome todos los cambios.
+Si el servidor esta encendido, aplicar un perfil detiene Palworld, escribe el `PalWorldSettings.ini` y vuelve a iniciar el servicio para que el cambio tome efecto. Si el servidor esta detenido, solo escribe la configuracion y queda lista para el siguiente inicio.
 
 Las acciones de crear, editar, duplicar, aplicar, restaurar, importar, exportar y eliminar perfiles requieren rol `ADMIN` en el panel. Este repositorio no contiene bot ni comandos Discord; la integracion se implemento en la arquitectura real disponible: API REST de Spring Boot y pantalla React.
 

@@ -3,10 +3,13 @@ package com.palworldadmin.app.service.configprofile;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.palworldadmin.app.dto.ConfigField;
 import com.palworldadmin.app.entity.PalworldServer;
+import com.palworldadmin.app.entity.ServerStatus;
 import com.palworldadmin.app.service.ActionLogService;
 import com.palworldadmin.app.service.PalworldServerService;
 import com.palworldadmin.app.service.server.PalworldPaths;
+import com.palworldadmin.app.util.CommandResult;
 import com.palworldadmin.app.util.IniParser;
 import com.palworldadmin.app.util.PathSecurityUtil;
 import org.springframework.beans.factory.annotation.Value;
@@ -113,7 +116,7 @@ public class ConfigProfileService {
             PalworldServer server = servers.get(serverId);
             ProfileIndex index = ensureDefaultProfile(server);
             String now = now();
-            String content = readActiveConfig(server);
+            String content = createBaseConfiguration(server, index, request);
             String sanitized = sanitizeSecrets(content);
             String id = uniqueId(index, slug(request.name()));
             ProfileDocument document = new ProfileDocument(
@@ -143,6 +146,32 @@ public class ConfigProfileService {
         }
     }
 
+    private String createBaseConfiguration(PalworldServer server, ProfileIndex index, ProfileWriteRequest request) throws IOException {
+        String content;
+        if (request.configuration() != null && !request.configuration().isBlank()) {
+            content = request.configuration();
+        } else if (request.baseProfileId() != null && !request.baseProfileId().isBlank()) {
+            ProfileDocument base = readProfile(server, requireProfile(index, request.baseProfileId()));
+            content = base.configuration;
+        } else {
+            content = readActiveConfig(server);
+        }
+        Map<String, String> submitted = request.values() == null ? Map.of() : request.values();
+        if (!submitted.isEmpty()) {
+            Map<String, String> existingValues = IniParser.parseOptionSettings(content);
+            Map<String, String> values = new LinkedHashMap<>();
+            existingValues.keySet().forEach(key -> {
+                if (submitted.containsKey(key)) {
+                    values.put(key, submitted.get(key));
+                }
+            });
+            if (!values.isEmpty()) {
+                content = IniParser.updateOptionSettings(content, values);
+            }
+        }
+        return content;
+    }
+
     public ProfileDetailView update(Long serverId, String profileId, ProfileUpdateRequest request, String username) {
         ReentrantLock lock = lock(serverId);
         lock.lock();
@@ -154,10 +183,14 @@ public class ConfigProfileService {
             String updatedConfiguration = request.configuration() == null
                     ? current.configuration
                     : sanitizeSecrets(request.configuration());
+            String requestedName = requiredName(request.name() == null ? current.name : request.name());
+            if (current.isDefault && !Objects.equals(current.name, requestedName)) {
+                throw new IllegalArgumentException("El perfil marcado como default no puede renombrarse. Marca otro perfil como default primero.");
+            }
             ProfileDocument updated = new ProfileDocument(
                     SCHEMA_VERSION,
                     current.id,
-                    requiredName(request.name() == null ? current.name : request.name()),
+                    requestedName,
                     cleanDescription(request.description() == null ? current.description : request.description()),
                     current.isDefault,
                     current.createdAt,
@@ -176,6 +209,53 @@ public class ConfigProfileService {
             return detail(updated, Objects.equals(index.activeProfileId, updated.id));
         } catch (IOException e) {
             throw new IllegalStateException("No se pudo actualizar el perfil: " + e.getMessage(), e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public ProfileDetailView updateParameters(Long serverId, String profileId, ProfileParameterUpdateRequest request, String username) {
+        ReentrantLock lock = lock(serverId);
+        lock.lock();
+        try {
+            PalworldServer server = servers.get(serverId);
+            ProfileIndex index = ensureDefaultProfile(server);
+            ProfileMetadata existing = requireProfile(index, profileId);
+            ProfileDocument current = readProfile(server, existing);
+            Map<String, String> submitted = request.values() == null ? Map.of() : request.values();
+            Map<String, String> existingValues = IniParser.parseOptionSettings(current.configuration);
+            Map<String, String> values = new LinkedHashMap<>();
+            existingValues.keySet().forEach(key -> {
+                if (submitted.containsKey(key)) {
+                    values.put(key, submitted.get(key));
+                }
+            });
+            if (values.isEmpty()) {
+                throw new IllegalArgumentException("No se recibieron parametros para guardar.");
+            }
+            String updatedConfiguration = sanitizeSecrets(IniParser.updateOptionSettings(current.configuration, values));
+            ProfileDocument updated = new ProfileDocument(
+                    SCHEMA_VERSION,
+                    current.id,
+                    current.name,
+                    current.description,
+                    current.isDefault,
+                    current.createdAt,
+                    now(),
+                    current.createdBy,
+                    username,
+                    updatedConfiguration,
+                    normalizedHash(updatedConfiguration),
+                    parameterCount(updatedConfiguration)
+            );
+            validateProfile(updated);
+            writeProfile(server, updated);
+            replaceMetadata(index, metadata(updated));
+            writeIndex(server, index);
+            actionLogs.record(server, "config-profile-edit-parameters", username, "Parametros editados: " + updated.name, null, null, true);
+            return detail(updated, Objects.equals(index.activeProfileId, updated.id));
+        } catch (IOException e) {
+            throw new IllegalStateException("No se pudieron guardar los parametros del perfil: " + e.getMessage(), e);
         } finally {
             lock.unlock();
         }
@@ -228,16 +308,26 @@ public class ConfigProfileService {
             String previous = readActiveConfig(server);
             String previousProfileId = index.activeProfileId;
             Path backup = writeBackup(server, previous, previousProfileId, target.id, username, "pending");
-            String configurationToApply = restoreActiveSecrets(target.configuration, previous);
+            boolean restartAfterApply = ServerStatus.RUNNING.equals(servers.status(server));
+            if (restartAfterApply) {
+                stopServerBeforeProfileApply(serverId, username);
+            }
+            String configurationToApply = applyRuntimeConnectionSecrets(target.configuration, previous, server);
             writeActiveConfig(server, configurationToApply);
             index.activeProfileId = target.id;
             replaceMetadata(index, metadata(target));
             writeIndex(server, index);
             writeBackup(server, previous, previousProfileId, target.id, username, "success");
             pruneBackups(server);
+            if (restartAfterApply) {
+                startServerAfterProfileApply(serverId, username);
+            }
             List<DiffEntryView> changes = diff(previous, target.configuration);
-            actionLogs.record(server, "config-profile-apply", username, "Perfil aplicado: " + target.name + ". Reinicia Palworld para tomar todos los cambios.", diffSummary(changes), null, true);
-            return new ApplyResultView(true, "Perfil aplicado. Reinicia Palworld para tomar todos los cambios.", target.id, backup.toString(), changes);
+            String message = restartAfterApply
+                    ? "Perfil aplicado. El servidor se detuvo y se inicio nuevamente para tomar los cambios."
+                    : "Perfil aplicado. Inicia Palworld para tomar todos los cambios.";
+            actionLogs.record(server, "config-profile-apply", username, "Perfil aplicado: " + target.name + ". " + message, diffSummary(changes), null, true);
+            return new ApplyResultView(true, message, target.id, backup.toString(), changes);
         } catch (IOException | RuntimeException e) {
             PalworldServer server = servers.get(serverId);
             actionLogs.record(server, "config-profile-apply", username, "No se pudo aplicar el perfil.", null, e.getMessage(), false);
@@ -247,8 +337,67 @@ public class ConfigProfileService {
         }
     }
 
+    private void stopServerBeforeProfileApply(Long serverId, String username) {
+        CommandResult stop = servers.action(serverId, "stop", username);
+        if (!stop.success()) {
+            throw new IllegalStateException("No se pudo detener el servidor antes de aplicar el perfil: " + valueOrDash(stop.combinedOutput()));
+        }
+    }
+
+    private void startServerAfterProfileApply(Long serverId, String username) {
+        CommandResult start = servers.action(serverId, "start", username);
+        if (!start.success()) {
+            throw new IllegalStateException("El perfil se escribio, pero no se pudo iniciar el servidor nuevamente: " + valueOrDash(start.combinedOutput()));
+        }
+    }
+
     public ApplyResultView restoreDefault(Long serverId, String username) {
-        return apply(serverId, DEFAULT_ID, username);
+        ReentrantLock lock = lock(serverId);
+        lock.lock();
+        try {
+            PalworldServer server = servers.get(serverId);
+            ProfileIndex index = ensureDefaultProfile(server);
+            return apply(serverId, index.defaultProfileId, username);
+        } catch (IOException e) {
+            throw new IllegalStateException("No se pudo localizar el perfil default: " + e.getMessage(), e);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public ProfileDetailView markDefault(Long serverId, String profileId, String username) {
+        ReentrantLock lock = lock(serverId);
+        lock.lock();
+        try {
+            PalworldServer server = servers.get(serverId);
+            ProfileIndex index = ensureDefaultProfile(server);
+            ProfileMetadata target = requireProfile(index, profileId);
+            index.defaultProfileId = target.id;
+            List<ProfileDocument> documents = new ArrayList<>();
+            for (ProfileMetadata metadata : index.profiles) {
+                ProfileDocument document = readProfile(server, metadata);
+                boolean nextDefault = Objects.equals(document.id, target.id);
+                if (document.isDefault != nextDefault) {
+                    document.isDefault = nextDefault;
+                    document.updatedAt = now();
+                    document.updatedBy = username;
+                    writeProfile(server, document);
+                }
+                documents.add(document);
+            }
+            index.profiles = documents.stream().map(this::metadata).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+            writeIndex(server, index);
+            ProfileDocument selected = documents.stream()
+                    .filter(document -> Objects.equals(document.id, target.id))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado."));
+            actionLogs.record(server, "config-profile-mark-default", username, "Perfil marcado como default: " + selected.name, null, null, true);
+            return detail(selected, Objects.equals(index.activeProfileId, selected.id));
+        } catch (IOException e) {
+            throw new IllegalStateException("No se pudo marcar el perfil como default: " + e.getMessage(), e);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public void delete(Long serverId, String profileId, String username) {
@@ -258,8 +407,8 @@ public class ConfigProfileService {
             PalworldServer server = servers.get(serverId);
             ProfileIndex index = ensureDefaultProfile(server);
             ProfileMetadata metadata = requireProfile(index, profileId);
-            if (metadata.isDefault || DEFAULT_ID.equals(metadata.id)) {
-                throw new IllegalArgumentException("El perfil default no puede eliminarse.");
+            if (metadata.isDefault) {
+                throw new IllegalArgumentException("El perfil marcado como default no puede eliminarse. Marca otro perfil como default primero.");
             }
             if (Objects.equals(index.activeProfileId, metadata.id)) {
                 throw new IllegalArgumentException("No puedes eliminar el perfil activo. Aplica otro perfil primero.");
@@ -357,8 +506,7 @@ public class ConfigProfileService {
         if (index.defaultProfileId == null || index.defaultProfileId.isBlank()) {
             index.defaultProfileId = DEFAULT_ID;
         }
-        boolean hasDefault = index.profiles.stream().anyMatch(profile -> DEFAULT_ID.equals(profile.id));
-        if (!hasDefault) {
+        if (index.profiles.isEmpty()) {
             String now = now();
             String active = sanitizeSecrets(readActiveConfig(server));
             ProfileDocument document = new ProfileDocument(
@@ -385,10 +533,19 @@ public class ConfigProfileService {
             writeIndex(server, index);
             actionLogs.record(server, "config-profile-migrate-default", "system", "Perfil default creado desde la configuracion activa.", null, null, true);
         }
+        if (index.defaultProfileId == null || index.profiles.stream().noneMatch(profile -> Objects.equals(profile.id, index.defaultProfileId))) {
+            index.defaultProfileId = index.profiles.stream()
+                    .filter(profile -> profile.isDefault)
+                    .map(profile -> profile.id)
+                    .findFirst()
+                    .orElseGet(() -> index.profiles.stream().map(profile -> profile.id).findFirst().orElse(DEFAULT_ID));
+        }
         long defaultCount = index.profiles.stream().filter(profile -> profile.isDefault).count();
-        if (defaultCount != 1 || index.profiles.stream().noneMatch(profile -> DEFAULT_ID.equals(profile.id) && profile.isDefault)) {
-            index.profiles.forEach(profile -> profile.isDefault = DEFAULT_ID.equals(profile.id));
-            index.defaultProfileId = DEFAULT_ID;
+        boolean metadataMatchesDefaultId = index.profiles.stream()
+                .filter(profile -> Objects.equals(profile.id, index.defaultProfileId))
+                .anyMatch(profile -> profile.isDefault);
+        if (defaultCount != 1 || !metadataMatchesDefaultId) {
+            index.profiles.forEach(profile -> profile.isDefault = Objects.equals(profile.id, index.defaultProfileId));
             writeIndex(server, index);
         }
         return index;
@@ -413,6 +570,9 @@ public class ConfigProfileService {
     private ProfileDocument readProfile(PalworldServer server, ProfileMetadata metadata) throws IOException {
         Path path = profilePath(server, metadata.id);
         ProfileDocument document = objectMapper.readValue(path.toFile(), ProfileDocument.class);
+        document.configuration = sanitizeSecrets(document.configuration);
+        document.hash = normalizedHash(document.configuration);
+        document.parameterCount = parameterCount(document.configuration);
         validateProfile(document);
         return document;
     }
@@ -467,19 +627,56 @@ public class ConfigProfileService {
         Map<String, String> values = IniParser.parseOptionSettings(content);
         SECRET_KEYS.stream()
                 .filter(values::containsKey)
-                .forEach(key -> updates.put(key, "\"__PALWORLD_ADMIN_SECRET__\""));
+                .forEach(key -> updates.put(key, "\"\""));
         return updates.isEmpty() ? content : IniParser.updateOptionSettings(content, updates);
     }
 
-    private String restoreActiveSecrets(String profileContent, String activeContent) {
+    private String applyRuntimeConnectionSecrets(String profileContent, String activeContent, PalworldServer server) {
+        String content = sanitizeSecrets(profileContent);
+        Map<String, String> profileValues = IniParser.parseOptionSettings(content);
         Map<String, String> activeValues = IniParser.parseOptionSettings(activeContent);
-        Map<String, String> profileValues = IniParser.parseOptionSettings(profileContent);
         Map<String, String> updates = new LinkedHashMap<>();
-        SECRET_KEYS.stream()
-                .filter(activeValues::containsKey)
-                .filter(profileValues::containsKey)
-                .forEach(key -> updates.put(key, activeValues.get(key)));
-        return updates.isEmpty() ? profileContent : IniParser.updateOptionSettings(profileContent, updates);
+
+        if (profileValues.containsKey("AdminPassword")) {
+            String rconPassword = cleanSecret(server.getRconPassword());
+            if (rconPassword != null) {
+                updates.put("AdminPassword", quotedIniString(rconPassword));
+            } else if (hasTextValue(activeValues.get("AdminPassword"))) {
+                updates.put("AdminPassword", activeValues.get("AdminPassword"));
+            }
+        }
+        if (profileValues.containsKey("ServerPassword") && hasTextValue(activeValues.get("ServerPassword"))) {
+            updates.put("ServerPassword", activeValues.get("ServerPassword"));
+        }
+        if (server.isRconEnabled()) {
+            if (profileValues.containsKey("RCONEnabled")) {
+                updates.put("RCONEnabled", "True");
+            }
+            if (profileValues.containsKey("RCONPort") && server.getRconPort() != null) {
+                updates.put("RCONPort", String.valueOf(server.getRconPort()));
+            }
+        }
+
+        return updates.isEmpty() ? content : IniParser.updateOptionSettings(content, updates);
+    }
+
+    private String cleanSecret(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private boolean hasTextValue(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String trimmed = value.trim();
+        return !trimmed.equals("\"\"");
+    }
+
+    private String quotedIniString(String value) {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     private String activeSanitizedHash(PalworldServer server) throws IOException {
@@ -606,7 +803,10 @@ public class ConfigProfileService {
     }
 
     private ProfileDetailView detail(ProfileDocument document, boolean active) {
-        return new ProfileDetailView(document.id, document.name, document.description, document.isDefault, active, document.createdAt, document.updatedAt, document.createdBy, document.updatedBy, document.hash, document.parameterCount, document.configuration);
+        List<ConfigField> fields = IniParser.parseOptionSettings(document.configuration).entrySet().stream()
+                .map(entry -> new ConfigField(entry.getKey(), entry.getValue()))
+                .toList();
+        return new ProfileDetailView(document.id, document.name, document.description, document.isDefault, active, document.createdAt, document.updatedAt, document.createdBy, document.updatedBy, document.hash, document.parameterCount, document.configuration, fields);
     }
 
     private String uniqueId(ProfileIndex index, String base) {
@@ -834,13 +1034,16 @@ public class ConfigProfileService {
     public record ProfileSummaryView(String id, String name, String description, boolean isDefault, boolean active, String createdAt, String updatedAt, String createdBy, String updatedBy, String hash, int parameterCount) {
     }
 
-    public record ProfileDetailView(String id, String name, String description, boolean isDefault, boolean active, String createdAt, String updatedAt, String createdBy, String updatedBy, String hash, int parameterCount, String configuration) {
+    public record ProfileDetailView(String id, String name, String description, boolean isDefault, boolean active, String createdAt, String updatedAt, String createdBy, String updatedBy, String hash, int parameterCount, String configuration, List<ConfigField> fields) {
     }
 
-    public record ProfileWriteRequest(String name, String description) {
+    public record ProfileWriteRequest(String name, String description, String configuration, String baseProfileId, Map<String, String> values) {
     }
 
     public record ProfileUpdateRequest(String name, String description, String configuration) {
+    }
+
+    public record ProfileParameterUpdateRequest(Map<String, String> values) {
     }
 
     public record DuplicateRequest(String name, String description) {

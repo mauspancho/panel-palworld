@@ -210,7 +210,7 @@ export const api = {
   configProfiles: (serverId: number) => request<ConfigProfileList>(`/api/servers/${serverId}/config-profiles`),
   configProfile: (serverId: number, profileId: string) => request<ConfigProfileDetail>(`/api/servers/${serverId}/config-profiles/${profileId}`),
   configProfileDiff: (serverId: number, profileId: string) => request<ConfigProfileDiffEntry[]>(`/api/servers/${serverId}/config-profiles/${profileId}/diff`),
-  createConfigProfile: (serverId: number, payload: { name: string; description: string }) =>
+  createConfigProfile: (serverId: number, payload: { name: string; description: string; configuration?: string; baseProfileId?: string; values?: Record<string, string> }) =>
     request<ConfigProfileDetail>(`/api/servers/${serverId}/config-profiles`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -222,6 +222,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }),
+  updateConfigProfileParameters: (serverId: number, profileId: string, values: Record<string, string>) =>
+    request<ConfigProfileDetail>(`/api/servers/${serverId}/config-profiles/${profileId}/parameters`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values })
+    }),
+  markConfigProfileDefault: (serverId: number, profileId: string) =>
+    request<ConfigProfileDetail>(`/api/servers/${serverId}/config-profiles/${profileId}/default`, { method: "POST" }),
   duplicateConfigProfile: (serverId: number, profileId: string, payload: { name: string; description: string }) =>
     request<ConfigProfileDetail>(`/api/servers/${serverId}/config-profiles/${profileId}/duplicate`, {
       method: "POST",

@@ -53,6 +53,18 @@ public class ConfigProfileController {
         return profiles.update(serverId, profileId, request, principal.getName());
     }
 
+    @PutMapping("/{profileId}/parameters")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ConfigProfileService.ProfileDetailView updateParameters(@PathVariable Long serverId, @PathVariable String profileId, @RequestBody ConfigProfileService.ProfileParameterUpdateRequest request, Principal principal) {
+        return profiles.updateParameters(serverId, profileId, request, principal.getName());
+    }
+
+    @PostMapping("/{profileId}/default")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ConfigProfileService.ProfileDetailView markDefault(@PathVariable Long serverId, @PathVariable String profileId, Principal principal) {
+        return profiles.markDefault(serverId, profileId, principal.getName());
+    }
+
     @PostMapping("/{profileId}/duplicate")
     @PreAuthorize("hasRole('ADMIN')")
     public ConfigProfileService.ProfileDetailView duplicate(@PathVariable Long serverId, @PathVariable String profileId, @RequestBody ConfigProfileService.DuplicateRequest request, Principal principal) {

@@ -1,15 +1,19 @@
 package com.palworldadmin.app.service.configprofile;
 
 import com.palworldadmin.app.entity.PalworldServer;
+import com.palworldadmin.app.entity.ServerStatus;
 import com.palworldadmin.app.service.ActionLogService;
 import com.palworldadmin.app.service.PalworldServerService;
+import com.palworldadmin.app.util.CommandResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,21 +79,44 @@ class ConfigProfileServiceTest {
     @Test
     void createsDuplicatesAndProtectsDefaultAndActiveProfiles() {
         service.list(SERVER_ID);
-        var event = service.createFromActive(SERVER_ID, new ConfigProfileService.ProfileWriteRequest("Evento XP", "Fin de semana"), "admin");
+        var event = service.createFromActive(SERVER_ID, createRequest("Evento XP", "Fin de semana"), "admin");
         var copy = service.duplicate(SERVER_ID, event.id(), new ConfigProfileService.DuplicateRequest("Evento XP copia", "duplicado"), "admin");
 
         assertThat(service.list(SERVER_ID).profiles()).extracting(ConfigProfileService.ProfileSummaryView::id)
                 .contains("default", event.id(), copy.id());
         assertThatThrownBy(() -> service.delete(SERVER_ID, "default", "admin"))
-                .hasMessageContaining("default no puede eliminarse");
+                .hasMessageContaining("marcado como default no puede eliminarse");
         assertThatThrownBy(() -> service.delete(SERVER_ID, "default", "admin"))
-                .hasMessageContaining("default no puede eliminarse");
+                .hasMessageContaining("marcado como default no puede eliminarse");
     }
 
     @Test
-    void appliesProfileAtomicallyWithBackupAndPreservesActiveSecrets() throws Exception {
+    void markedDefaultCannotBeDeletedOrRenamedUntilAnotherProfileIsDefault() {
         service.list(SERVER_ID);
-        var event = service.createFromActive(SERVER_ID, new ConfigProfileService.ProfileWriteRequest("Evento XP", ""), "admin");
+        var event = service.createFromActive(SERVER_ID, createRequest("Evento XP", "Fin de semana"), "admin");
+
+        var marked = service.markDefault(SERVER_ID, event.id(), "admin");
+
+        assertThat(marked.isDefault()).isTrue();
+        assertThatThrownBy(() -> service.delete(SERVER_ID, event.id(), "admin"))
+                .hasMessageContaining("marcado como default no puede eliminarse");
+        assertThatThrownBy(() -> service.update(SERVER_ID, event.id(), new ConfigProfileService.ProfileUpdateRequest("Otro nombre", "Fin de semana", null), "admin"))
+                .hasMessageContaining("no puede renombrarse");
+
+        service.markDefault(SERVER_ID, "default", "admin");
+        service.delete(SERVER_ID, event.id(), "admin");
+
+        assertThat(service.list(SERVER_ID).profiles()).extracting(ConfigProfileService.ProfileSummaryView::id)
+                .doesNotContain(event.id());
+    }
+
+    @Test
+    void appliesProfileAtomicallyWithBackupAndInjectsStoredRconPassword() throws Exception {
+        server.setRconEnabled(true);
+        server.setRconPort(25576);
+        server.setRconPassword("rcon-secret");
+        service.list(SERVER_ID);
+        var event = service.createFromActive(SERVER_ID, createRequest("Evento XP", ""), "admin");
         service.update(
                 SERVER_ID,
                 event.id(),
@@ -104,10 +131,32 @@ class ConfigProfileServiceTest {
         assertThat(result.changes()).extracting(ConfigProfileService.DiffEntryView::key).contains("ServerName", "ExpRate");
         assertThat(active).contains("ServerName=\"Evento\"");
         assertThat(active).contains("ExpRate=5.000000");
-        assertThat(active).contains("AdminPassword=\"secret-admin\"");
+        assertThat(active).contains("AdminPassword=\"rcon-secret\"");
         assertThat(active).contains("ServerPassword=\"secret-server\"");
         assertThat(Files.exists(Path.of(result.backupPath()))).isTrue();
         verify(actionLogs).record(any(), anyString(), anyString(), anyString(), anyString(), isNull(), anyBoolean());
+    }
+
+    @Test
+    void applyingProfileRestartsRunningServerSoPalworldLoadsNewSettings() throws Exception {
+        when(servers.status(server)).thenReturn(ServerStatus.RUNNING);
+        when(servers.action(SERVER_ID, "stop", "admin")).thenReturn(successCommand("stop"));
+        when(servers.action(SERVER_ID, "start", "admin")).thenReturn(successCommand("start"));
+        service.list(SERVER_ID);
+        var event = service.createFromActive(SERVER_ID, createRequest("Evento XP", ""), "admin");
+        service.update(
+                SERVER_ID,
+                event.id(),
+                new ConfigProfileService.ProfileUpdateRequest("Evento XP", "", settings("Evento", "ignored", "ignored", "5.000000")),
+                "admin"
+        );
+
+        var result = service.apply(SERVER_ID, event.id(), "admin");
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.message()).contains("se detuvo y se inicio nuevamente");
+        verify(servers).action(SERVER_ID, "stop", "admin");
+        verify(servers).action(SERVER_ID, "start", "admin");
     }
 
     @Test
@@ -128,12 +177,22 @@ class ConfigProfileServiceTest {
         assertThat(imported.name()).isEqualTo("Importado");
         assertThat(exported.configuration).contains("ServerName=\"Importado\"");
         assertThat(exported.configuration).doesNotContain("raw-secret").doesNotContain("raw-server");
-        assertThat(exported.configuration).contains("__PALWORLD_ADMIN_SECRET__");
+        assertThat(exported.configuration).contains("AdminPassword=\"\"");
+        assertThat(exported.configuration).contains("ServerPassword=\"\"");
+        assertThat(exported.configuration).doesNotContain("__PALWORLD_ADMIN_SECRET__");
     }
 
     private String settings(String serverName, String adminPassword, String serverPassword, String expRate) {
         return "[/Script/Pal.PalGameWorldSettings]\n"
                 + "OptionSettings=(ServerName=\"" + serverName + "\",AdminPassword=\"" + adminPassword + "\",ServerPassword=\"" + serverPassword + "\",ExpRate=" + expRate + ",PalCaptureRate=1.000000)\n";
+    }
+
+    private ConfigProfileService.ProfileWriteRequest createRequest(String name, String description) {
+        return new ConfigProfileService.ProfileWriteRequest(name, description, null, null, null);
+    }
+
+    private CommandResult successCommand(String command) {
+        return new CommandResult(List.of(command), 0, command + " ok", "", Duration.ZERO, false);
     }
 
     private String escapeJson(String value) {
