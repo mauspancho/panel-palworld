@@ -79,6 +79,11 @@
                 <label class="form-label" for="updateCommand">Comando update Docker permitido</label>
                 <input class="form-control" id="updateCommand" th:field="*{updateCommand}" placeholder="docker exec contenedor /ruta/update.sh">
             </div>
+            <div class="col-12">
+                <label class="form-label" for="worldStatsPath">Ruta de estadisticas de jugadores y gremios</label>
+                <input class="form-control" id="worldStatsPath" th:field="*{worldStatsPath}" placeholder="/home/usuario/palworld/jugadores/world-stats.json">
+                <div class="form-text">Archivo JSON generado por el servicio externo del servidor. El panel solo lo lee, no lo modifica.</div>
+            </div>
         </div>
         <div class="d-flex gap-2 mt-4">
             <button class="btn btn-primary" type="submit">Guardar</button>

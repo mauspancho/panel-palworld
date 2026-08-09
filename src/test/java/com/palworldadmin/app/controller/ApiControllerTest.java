@@ -9,10 +9,17 @@ import com.palworldadmin.app.repository.PlayerOnlineSnapshotRepository;
 import com.palworldadmin.app.repository.RegisteredPlayerRepository;
 import com.palworldadmin.app.service.PlayerOnlineSnapshotService;
 import com.palworldadmin.app.service.PlayerPresenceService;
+import com.palworldadmin.app.service.worldstats.GuildMemberStats;
+import com.palworldadmin.app.service.worldstats.GuildPlayerRef;
+import com.palworldadmin.app.service.worldstats.GuildStats;
+import com.palworldadmin.app.service.worldstats.WorldStatsResult;
+import com.palworldadmin.app.service.worldstats.WorldStatsService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,6 +28,9 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -58,6 +68,15 @@ class ApiControllerTest {
     @Autowired
     private PlayerPresenceService playerPresence;
 
+    @MockBean
+    private WorldStatsService worldStats;
+
+    @BeforeEach
+    void configureSaveStats() {
+        when(worldStats.aggregate(anyList())).thenReturn(WorldStatsResult.unavailable("No configurado en pruebas."));
+        when(worldStats.read(any(PalworldServer.class))).thenReturn(WorldStatsResult.unavailable("No configurado en pruebas."));
+    }
+
     @Test
     @WithMockUser(username = "admin", roles = "ADMIN")
     void dashboardApiReturnsServersWithoutRconPassword() throws Exception {
@@ -80,6 +99,160 @@ class ApiControllerTest {
                 .andExpect(content().string(containsString("Modern Server")))
                 .andExpect(content().string(containsString("25575")))
                 .andExpect(content().string(not(containsString("secret-rcon-password"))));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void dashboardApiIncludesPersistentWorldStats() throws Exception {
+        when(worldStats.aggregate(anyList())).thenReturn(WorldStatsResult.available(100, 20, 5, List.of()));
+        PalworldServer server = new PalworldServer();
+        server.setName("World Stats Server");
+        server.setType(ServerType.SYSTEMD);
+        server.setServiceName("palworld-world-stats.service");
+        server.setRootPath("C:/palworld-world-stats");
+        server.setLinuxUser("palworld");
+        server.setLinuxGroup("palworld");
+        servers.save(server);
+
+        mvc.perform(get("/api/dashboard"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"worldStats\":{\"schemaVersion\":1")))
+                .andExpect(content().string(containsString("\"totalPlayers\":100")))
+                .andExpect(content().string(containsString("\"playersWithBase\":20")))
+                .andExpect(content().string(containsString("\"totalGuilds\":5")))
+                .andExpect(content().string(containsString("\"available\":true")));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void editServerFormPersistsWorldStatsPath() throws Exception {
+        PalworldServer server = new PalworldServer();
+        server.setName("Editable Stats Server");
+        server.setType(ServerType.SYSTEMD);
+        server.setServiceName("palworld-editable-stats.service");
+        server.setRootPath("/home/usuario/palworld");
+        server.setSteamcmdPath("/usr/games/steamcmd");
+        server.setLinuxUser("palworld");
+        server.setLinuxGroup("palworld");
+        server.setPublicPort(8211);
+        servers.save(server);
+
+        mvc.perform(post("/servers")
+                        .with(csrf())
+                        .param("id", server.getId().toString())
+                        .param("name", "Editable Stats Server")
+                        .param("type", "SYSTEMD")
+                        .param("serviceName", "palworld-editable-stats.service")
+                        .param("rootPath", "/home/usuario/palworld")
+                        .param("steamcmdPath", "/usr/games/steamcmd")
+                        .param("linuxUser", "palworld")
+                        .param("linuxGroup", "palworld")
+                        .param("publicPort", "8211")
+                        .param("worldStatsPath", "  /home/usuario/palworld/jugadores/world-stats.json  ")
+                        .param("enabled", "true"))
+                .andExpect(status().is3xxRedirection());
+
+        PalworldServer saved = servers.findById(server.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(saved.getWorldStatsPath())
+                .isEqualTo("/home/usuario/palworld/jugadores/world-stats.json");
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void modernServerEditPersistsWorldStatsPath() throws Exception {
+        PalworldServer server = new PalworldServer();
+        server.setName("Modern Editable Server");
+        server.setType(ServerType.SYSTEMD);
+        server.setServiceName("palworld-modern-editable.service");
+        server.setRootPath("/home/usuario/palworld");
+        server.setSteamcmdPath("/usr/games/steamcmd");
+        server.setLinuxUser("palworld");
+        server.setLinuxGroup("palworld");
+        server.setPublicPort(8211);
+        servers.save(server);
+
+        mvc.perform(put("/api/servers/" + server.getId())
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Modern Editable Server",
+                                  "type": "SYSTEMD",
+                                  "serviceName": "palworld-modern-editable.service",
+                                  "rootPath": "/home/usuario/palworld",
+                                  "steamcmdPath": "/usr/games/steamcmd",
+                                  "linuxUser": "palworld",
+                                  "linuxGroup": "palworld",
+                                  "publicPort": 8211,
+                                  "worldStatsPath": "  /home/usuario/palworld/jugadores/world-stats.json  ",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"worldStatsPath\":\"/home/usuario/palworld/jugadores/world-stats.json\"")));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void adminCanCreateServerFromModernApi() throws Exception {
+        mvc.perform(post("/api/servers")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Nuevo Servidor",
+                                  "type": "SYSTEMD",
+                                  "serviceName": "palworld-nuevo.service",
+                                  "rootPath": "/opt/palworld-servers/nuevo",
+                                  "steamcmdPath": "/usr/games/steamcmd",
+                                  "linuxUser": "palworld",
+                                  "linuxGroup": "palworld",
+                                  "publicPort": 8212,
+                                  "worldStatsPath": "/opt/palworld-servers/nuevo/jugadores/world-stats.json",
+                                  "enabled": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"name\":\"Nuevo Servidor\"")))
+                .andExpect(content().string(containsString("\"serviceName\":\"palworld-nuevo.service\"")))
+                .andExpect(content().string(containsString("\"worldStatsPath\":\"/opt/palworld-servers/nuevo/jugadores/world-stats.json\"")));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    void guildApiReturnsGuildsAndMembersFromWorldStats() throws Exception {
+        PalworldServer server = new PalworldServer();
+        server.setName("Guild Server");
+        server.setType(ServerType.SYSTEMD);
+        server.setServiceName("palworld-guilds.service");
+        server.setRootPath("C:/palworld-guilds");
+        server.setLinuxUser("palworld");
+        server.setLinuxGroup("palworld");
+        servers.save(server);
+
+        when(worldStats.read(any(PalworldServer.class))).thenReturn(WorldStatsResult.available(
+                10,
+                4,
+                1,
+                List.of(new GuildStats(
+                        "guild-1",
+                        "Los Admins",
+                        new GuildPlayerRef("leader-uid", "Admin"),
+                        3,
+                        2,
+                        List.of(
+                                new GuildMemberStats("leader-uid", "Admin", true),
+                                new GuildMemberStats("player-uid", "Pancho", false)
+                        )
+                ))
+        ));
+
+        mvc.perform(get("/api/guilds"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("\"serverName\":\"Guild Server\"")))
+                .andExpect(content().string(containsString("\"name\":\"Los Admins\"")))
+                .andExpect(content().string(containsString("\"bases\":3")))
+                .andExpect(content().string(containsString("\"name\":\"Pancho\"")));
     }
 
     @Test
@@ -110,12 +283,12 @@ class ApiControllerTest {
     }
 
     @Test
-    void corsAllowsCustomCloudflareDomain() throws Exception {
+    void corsAllowsCloudflareTunnelDomain() throws Exception {
         mvc.perform(options("/api/auth/csrf")
-                        .header("Origin", "https://pal.linuxred.lat")
+                        .header("Origin", "https://demo.trycloudflare.com")
                         .header("Access-Control-Request-Method", "GET"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "https://pal.linuxred.lat"));
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://demo.trycloudflare.com"));
     }
 
     @Test

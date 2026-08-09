@@ -13,6 +13,12 @@ export type ServerView = {
   rconEnabled: boolean;
   rconPort: number | null;
   enabled: boolean;
+  composeProjectName: string | null;
+  linuxUser: string | null;
+  linuxGroup: string | null;
+  steamcmdPath: string | null;
+  updateCommand: string | null;
+  worldStatsPath: string | null;
 };
 
 export type DashboardStats = {
@@ -21,6 +27,43 @@ export type DashboardStats = {
   stoppedServers: number;
   errorServers: number;
   rconEnabledServers: number;
+};
+
+export type WorldStats = {
+  schemaVersion: number;
+  generatedAt: string | null;
+  saveLastModified: string | null;
+  totalPlayers: number;
+  playersWithBase: number;
+  totalGuilds: number;
+  available: boolean;
+  message: string;
+};
+
+export type GuildMemberView = {
+  uid: string | null;
+  name: string | null;
+  leader: boolean;
+};
+
+export type GuildView = {
+  id: string | null;
+  name: string | null;
+  leaderUid: string | null;
+  leaderName: string | null;
+  bases: number;
+  memberCount: number;
+  members: GuildMemberView[];
+};
+
+export type GuildServerView = {
+  serverId: number;
+  serverName: string;
+  available: boolean;
+  message: string;
+  generatedAt: string | null;
+  saveLastModified: string | null;
+  guilds: GuildView[];
 };
 
 export type ActivityItem = {
@@ -47,6 +90,7 @@ export type PageView = {
 export type DashboardView = {
   servers: ServerView[];
   stats: DashboardStats;
+  worldStats: WorldStats;
   recentActivity: ActivityItem[];
   activitySeries: ActivityPoint[];
   page: PageView;

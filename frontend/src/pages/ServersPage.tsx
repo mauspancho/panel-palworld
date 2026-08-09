@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ClipboardList, FileJson, FileText, Play, Radio, RotateCcw, Settings, Square, Trash2, Wrench } from "lucide-react";
+import { ClipboardList, FileJson, FileText, Pencil, Play, Plus, Radio, RotateCcw, Settings, Square, Trash2, Wrench } from "lucide-react";
 import { api } from "../lib/api";
 import type { ServerView } from "../types";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
@@ -11,6 +11,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { ConfirmDialog } from "../components/ui/confirm-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { useToast } from "../components/ui/toast";
+import { ServerEditPage } from "./ServerEditPage";
 
 type PendingAction = {
   server: ServerView;
@@ -25,6 +26,7 @@ const serverColumns = (
   onOpenRcon: (id: number) => void,
   onOpenLogs: (id: number) => void,
   onOpenProfiles: (id: number) => void,
+  editServer: (server: ServerView) => void,
   openConfig: (server: ServerView) => void
 ): DataTableColumn<ServerView>[] => [
   { key: "name", header: "Nombre", sortable: true, searchValue: (server) => server.name, render: (server) => <span className="font-medium">{server.name}</span> },
@@ -45,6 +47,7 @@ const serverColumns = (
         {isAdmin ? <Button size="sm" variant="outline" disabled={busy === server.id} onClick={() => setPending({ server, action: "install" })}><ClipboardList className="h-3.5 w-3.5" />Instalar</Button> : null}
         <Button size="sm" variant="outline" onClick={() => onOpenRcon(server.id)}><Radio className="h-3.5 w-3.5" />RCON</Button>
         <Button size="sm" variant="outline" onClick={() => onOpenLogs(server.id)}><FileText className="h-3.5 w-3.5" />Logs</Button>
+        {isAdmin ? <Button size="sm" variant="outline" onClick={() => editServer(server)}><Pencil className="h-3.5 w-3.5" />Editar servidor</Button> : null}
         {isAdmin ? <Button size="sm" variant="outline" onClick={() => onOpenProfiles(server.id)}><FileJson className="h-3.5 w-3.5" />Perfiles</Button> : null}
         {isAdmin ? <Button size="sm" variant="outline" onClick={() => openConfig(server)}><Settings className="h-3.5 w-3.5" />Configuracion</Button> : null}
         {isAdmin ? <Button size="sm" variant="destructive" disabled={busy === server.id} onClick={() => setPending({ server, action: "delete" })}><Trash2 className="h-3.5 w-3.5" />Eliminar</Button> : null}
@@ -67,6 +70,8 @@ export function ServersPage({
   const [servers, setServers] = React.useState<ServerView[] | null>(null);
   const [pending, setPending] = React.useState<PendingAction | null>(null);
   const [busy, setBusy] = React.useState<number | null>(null);
+  const [editing, setEditing] = React.useState<ServerView | null>(null);
+  const [creating, setCreating] = React.useState(false);
   const { toast } = useToast();
 
   const load = React.useCallback(() => api.servers().then(setServers), []);
@@ -94,9 +99,42 @@ export function ServersPage({
     window.location.href = `/servers/${server.id}/config`;
   };
 
+  const editServer = (server: ServerView) => setEditing(server);
+
+  if (editing || creating) {
+    return (
+      <ServerEditPage
+        server={editing ?? undefined}
+        onBack={() => {
+          setEditing(null);
+          setCreating(false);
+        }}
+        onSaved={(saved) => {
+          setServers((current) => {
+            if (!current) return [saved];
+            return current.some((server) => server.id === saved.id)
+              ? current.map((server) => server.id === saved.id ? saved : server)
+              : [...current, saved].sort((left, right) => left.name.localeCompare(right.name, "es", { sensitivity: "base" }));
+          });
+          setEditing(null);
+          setCreating(false);
+          load().catch((error) => toast({ title: "No se pudo refrescar servidores", description: error.message, variant: "error" }));
+        }}
+      />
+    );
+  }
+
   return (
     <div>
-      <SectionHeader title="Servidores" description="Control de servidores registrados, con acciones reales ejecutadas por el backend." />
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader title="Servidores" description="Control de servidores registrados, con acciones reales ejecutadas por el backend." />
+        {isAdmin ? (
+          <Button type="button" onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            Agregar servidor
+          </Button>
+        ) : null}
+      </div>
       <Card>
         <CardContent className="p-0">
           {!servers ? (
@@ -107,7 +145,7 @@ export function ServersPage({
             <div className="p-5">
               <DataTable
                 data={servers}
-                columns={serverColumns(busy, isAdmin, runAction, setPending, onOpenRcon, onOpenLogs, onOpenProfiles, openConfig)}
+                columns={serverColumns(busy, isAdmin, runAction, setPending, onOpenRcon, onOpenLogs, onOpenProfiles, editServer, openConfig)}
                 getRowKey={(server) => server.id}
                 searchPlaceholder="Filtrar servidores"
                 minWidth="980px"

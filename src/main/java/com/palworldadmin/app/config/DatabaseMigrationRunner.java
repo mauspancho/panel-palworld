@@ -26,6 +26,7 @@ public class DatabaseMigrationRunner implements ApplicationRunner {
         jdbc.execute("alter table palworld_server add column if not exists auto_restart_time varchar(5)");
         jdbc.execute("alter table palworld_server add column if not exists auto_restart_last_warning_date date");
         jdbc.execute("alter table palworld_server add column if not exists auto_restart_last_run_date date");
+        jdbc.execute("alter table palworld_server add column if not exists world_stats_path varchar(1024)");
         jdbc.execute("""
                 update palworld_server
                 set rcon_enabled = true

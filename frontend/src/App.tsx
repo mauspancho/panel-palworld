@@ -5,6 +5,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Command,
+  Crown,
   FileText,
   LogOut,
   Menu,
@@ -24,6 +25,7 @@ import { ToastProvider, useToast } from "./components/ui/toast";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ServersPage } from "./pages/ServersPage";
 import { PlayersPage } from "./pages/PlayersPage";
+import { GuildsPage } from "./pages/GuildsPage";
 import { RconPage } from "./pages/RconPage";
 import { LogsPage } from "./pages/LogsPage";
 import { ActivityPage } from "./pages/ActivityPage";
@@ -38,12 +40,13 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { useTheme } from "./hooks/useTheme";
 import { applyTheme } from "./lib/theme";
 
-export type PageKey = "dashboard" | "servers" | "players" | "rcon" | "commands" | "logs" | "activity" | "configProfiles" | "users" | "profile" | "settings";
+export type PageKey = "dashboard" | "servers" | "players" | "guilds" | "rcon" | "commands" | "logs" | "activity" | "configProfiles" | "users" | "profile" | "settings";
 
 const navItems: Array<{ key: PageKey; label: string; icon: React.ComponentType<{ className?: string }>; adminOnly?: boolean }> = [
   { key: "dashboard", label: "Dashboard", icon: BarChart3 },
   { key: "servers", label: "Servidores", icon: Server },
   { key: "players", label: "Jugadores", icon: Users },
+  { key: "guilds", label: "Gremios", icon: Crown },
   { key: "rcon", label: "Consola RCON", icon: Radio },
   { key: "commands", label: "Comandos", icon: Command },
   { key: "logs", label: "Logs", icon: FileText },
@@ -130,6 +133,7 @@ function AppShell() {
     dashboard: <DashboardPage onOpenRcon={openRconForServer} />,
     servers: <ServersPage onOpenRcon={openRconForServer} onOpenLogs={openLogsForServer} onOpenProfiles={openProfilesForServer} isAdmin={isAdmin} />,
     players: <PlayersPage selectedServerId={selectedServerId} onSelectServer={setSelectedServerId} />,
+    guilds: <GuildsPage />,
     rcon: <RconPage selectedServerId={selectedServerId} onSelectServer={setSelectedServerId} canManageConfig={isAdmin} />,
     commands: <RconPage selectedServerId={selectedServerId} onSelectServer={setSelectedServerId} commandsOnly />,
     logs: <LogsPage selectedServerId={selectedLogServerId} onSelectServer={setSelectedLogServerId} />,

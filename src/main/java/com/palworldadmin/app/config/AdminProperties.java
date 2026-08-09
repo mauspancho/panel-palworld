@@ -29,8 +29,6 @@ public class AdminProperties {
             "https://192.168.*:[*]",
             "https://10.*:[*]",
             "https://172.*:[*]",
-            "https://pal.linuxred.lat",
-            "https://*.linuxred.lat",
             "https://*.trycloudflare.com",
             "https://*.cfargotunnel.com",
             "https://*.cloudflareaccess.com"

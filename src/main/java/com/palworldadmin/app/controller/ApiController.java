@@ -6,12 +6,16 @@ import com.palworldadmin.app.entity.ActionStatus;
 import com.palworldadmin.app.entity.PalworldServer;
 import com.palworldadmin.app.entity.ServerActionLog;
 import com.palworldadmin.app.entity.ServerStatus;
+import com.palworldadmin.app.entity.ServerType;
 import com.palworldadmin.app.service.ActionLogService;
 import com.palworldadmin.app.service.PalworldServerService;
 import com.palworldadmin.app.service.PlayerOnlineSnapshotService;
 import com.palworldadmin.app.service.PlayerPresenceService;
 import com.palworldadmin.app.service.ServerLogFilterService;
 import com.palworldadmin.app.service.UserAccountService;
+import com.palworldadmin.app.service.worldstats.GuildStats;
+import com.palworldadmin.app.service.worldstats.WorldStatsResult;
+import com.palworldadmin.app.service.worldstats.WorldStatsService;
 import com.palworldadmin.app.util.CommandResult;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
@@ -42,14 +46,16 @@ public class ApiController {
     private final PlayerPresenceService playerPresence;
     private final ServerLogFilterService serverLogFilter;
     private final UserAccountService accounts;
+    private final WorldStatsService worldStats;
 
-    public ApiController(PalworldServerService servers, ActionLogService actionLogs, PlayerOnlineSnapshotService playerSnapshots, PlayerPresenceService playerPresence, ServerLogFilterService serverLogFilter, UserAccountService accounts) {
+    public ApiController(PalworldServerService servers, ActionLogService actionLogs, PlayerOnlineSnapshotService playerSnapshots, PlayerPresenceService playerPresence, ServerLogFilterService serverLogFilter, UserAccountService accounts, WorldStatsService worldStats) {
         this.servers = servers;
         this.actionLogs = actionLogs;
         this.playerSnapshots = playerSnapshots;
         this.playerPresence = playerPresence;
         this.serverLogFilter = serverLogFilter;
         this.accounts = accounts;
+        this.worldStats = worldStats;
     }
 
     @GetMapping("/auth/csrf")
@@ -84,9 +90,11 @@ public class ApiController {
             @RequestParam(defaultValue = "0") int logPage,
             @RequestParam(defaultValue = "10") int logSize
     ) {
-        List<ServerView> serverViews = servers.dashboardRows().stream()
+        List<ServerDashboardRow> rows = servers.dashboardRows();
+        List<ServerView> serverViews = rows.stream()
                 .map(this::serverView)
                 .toList();
+        WorldStatsResult worldStatsResult = worldStats.aggregate(rows.stream().map(ServerDashboardRow::server).toList());
         int safeLogSize = safeLogSize(logSize);
         Page<ActivityLogView> recent = actionLogs.recentAll(Math.max(0, logPage), safeLogSize);
         List<ActivityView> activity = recent.getContent().stream()
@@ -95,6 +103,7 @@ public class ApiController {
         return new DashboardView(
                 serverViews,
                 dashboardStats(serverViews),
+                worldStatsView(worldStatsResult),
                 activity,
                 activitySeries(),
                 new PageView(recent.getNumber(), recent.getSize(), recent.getTotalElements(), recent.getTotalPages())
@@ -105,6 +114,50 @@ public class ApiController {
     public List<ServerView> serverList() {
         return servers.dashboardRows().stream()
                 .map(this::serverView)
+                .toList();
+    }
+
+    @PostMapping("/servers")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ServerView> createServer(@RequestBody ServerUpdateRequest request) {
+        try {
+            PalworldServer server = new PalworldServer();
+            applyServerUpdate(server, request);
+            PalworldServer saved = servers.save(server);
+            return ResponseEntity.ok(serverView(new ServerDashboardRow(saved, servers.status(saved))));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/servers/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ServerView> updateServer(@PathVariable Long id, @RequestBody ServerUpdateRequest request) {
+        try {
+            PalworldServer server = servers.get(id);
+            applyServerUpdate(server, request);
+            PalworldServer saved = servers.save(server);
+            return ResponseEntity.ok(serverView(new ServerDashboardRow(saved, servers.status(saved))));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @GetMapping("/guilds")
+    public List<GuildServerView> guilds() {
+        return servers.findAll().stream()
+                .map(server -> {
+                    WorldStatsResult result = worldStats.read(server);
+                    return new GuildServerView(
+                            server.getId(),
+                            server.getName(),
+                            result.available(),
+                            result.message(),
+                            result.generatedAt(),
+                            result.saveLastModified(),
+                            result.guilds().stream().map(this::guildView).toList()
+                    );
+                })
                 .toList();
     }
 
@@ -263,8 +316,37 @@ public class ApiController {
                 server.getPublicPort(),
                 server.isRconEnabled(),
                 server.isRconEnabled() ? server.getRconPort() : null,
-                server.isEnabled()
+                server.isEnabled(),
+                server.getComposeProjectName(),
+                server.getLinuxUser(),
+                server.getLinuxGroup(),
+                server.getSteamcmdPath(),
+                server.getUpdateCommand(),
+                server.getWorldStatsPath()
         );
+    }
+
+    private void applyServerUpdate(PalworldServer server, ServerUpdateRequest request) {
+        server.setName(request.name());
+        server.setType(parseServerType(request.type()));
+        server.setServiceName(request.serviceName());
+        server.setContainerName(request.containerName());
+        server.setComposeProjectName(request.composeProjectName());
+        server.setRootPath(request.rootPath());
+        server.setSteamcmdPath(request.steamcmdPath());
+        server.setLinuxUser(request.linuxUser());
+        server.setLinuxGroup(request.linuxGroup());
+        server.setPublicPort(request.publicPort());
+        server.setUpdateCommand(request.updateCommand());
+        server.setWorldStatsPath(request.worldStatsPath());
+        server.setEnabled(request.enabled() == null || request.enabled());
+    }
+
+    private ServerType parseServerType(String type) {
+        if (type == null || type.isBlank()) {
+            return ServerType.SYSTEMD;
+        }
+        return ServerType.valueOf(type.trim().toUpperCase());
     }
 
     private String displayType(PalworldServer server) {
@@ -291,6 +373,33 @@ public class ApiController {
         return playerPresence.activitySeries(java.time.Duration.ofHours(24), 15).stream()
                 .map(point -> new ActivityPointView(point.capturedAt(), point.playerCount(), point.players()))
                 .toList();
+    }
+
+    private WorldStatsView worldStatsView(WorldStatsResult stats) {
+        return new WorldStatsView(
+                stats.schemaVersion(),
+                stats.generatedAt(),
+                stats.saveLastModified(),
+                stats.totalPlayers(),
+                stats.playersWithBase(),
+                stats.totalGuilds(),
+                stats.available(),
+                stats.message()
+        );
+    }
+
+    private GuildView guildView(GuildStats guild) {
+        return new GuildView(
+                guild.id(),
+                guild.name(),
+                guild.leader() == null ? null : guild.leader().uid(),
+                guild.leader() == null ? null : guild.leader().name(),
+                guild.bases(),
+                guild.memberCount(),
+                guild.members().stream()
+                        .map(member -> new GuildMemberView(member.uid(), member.name(), member.leader()))
+                        .toList()
+        );
     }
 
     private void ensureServerActionAllowed(String action, Authentication authentication) {
@@ -322,6 +431,7 @@ public class ApiController {
     public record DashboardView(
             List<ServerView> servers,
             DashboardStatsView stats,
+            WorldStatsView worldStats,
             List<ActivityView> recentActivity,
             List<ActivityPointView> activitySeries,
             PageView page
@@ -329,6 +439,9 @@ public class ApiController {
     }
 
     public record DashboardStatsView(long totalServers, long runningServers, long stoppedServers, long errorServers, long rconEnabledServers) {
+    }
+
+    public record WorldStatsView(int schemaVersion, String generatedAt, String saveLastModified, int totalPlayers, int playersWithBase, int totalGuilds, boolean available, String message) {
     }
 
     public record ServerView(
@@ -343,8 +456,56 @@ public class ApiController {
             Integer publicPort,
             boolean rconEnabled,
             Integer rconPort,
-            boolean enabled
+            boolean enabled,
+            String composeProjectName,
+            String linuxUser,
+            String linuxGroup,
+            String steamcmdPath,
+            String updateCommand,
+            String worldStatsPath
     ) {
+    }
+
+    public record ServerUpdateRequest(
+            String name,
+            String type,
+            String serviceName,
+            String containerName,
+            String composeProjectName,
+            String rootPath,
+            String steamcmdPath,
+            String linuxUser,
+            String linuxGroup,
+            Integer publicPort,
+            String updateCommand,
+            String worldStatsPath,
+            Boolean enabled
+    ) {
+    }
+
+    public record GuildServerView(
+            Long serverId,
+            String serverName,
+            boolean available,
+            String message,
+            String generatedAt,
+            String saveLastModified,
+            List<GuildView> guilds
+    ) {
+    }
+
+    public record GuildView(
+            String id,
+            String name,
+            String leaderUid,
+            String leaderName,
+            int bases,
+            int memberCount,
+            List<GuildMemberView> members
+    ) {
+    }
+
+    public record GuildMemberView(String uid, String name, boolean leader) {
     }
 
     public record ActivityView(LocalDateTime startedAt, String serverName, String action, String status, String username) {

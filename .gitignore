@@ -1,6 +1,10 @@
 target/
 data/
-tools/
+tools/*
+!tools/palworld-stats/
+!tools/palworld-stats/palworld_stats.py
+tools/palworld-stats/__pycache__/
+tools/palworld-stats/*.pyc
 mvn-local.cmd
 mvn-local.ps1
 .idea/

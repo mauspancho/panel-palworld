@@ -129,7 +129,7 @@ export PALWORLD_CHOWN_COMMAND=/usr/bin/chown
 export PALWORLD_CHMOD_COMMAND=/usr/bin/chmod
 
 export PALWORLD_CORS_ALLOWED_ORIGIN=http://localhost:5173
-export PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS='http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],http://172.*:[*],https://pal.linuxred.lat,https://*.linuxred.lat'
+export PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS='http://localhost:[*],http://127.0.0.1:[*],http://192.168.*:[*],http://10.*:[*],http://172.*:[*],https://pal.example.com,https://*.example.com'
 ```
 
 La app usa `sudo -n` por defecto. Esto evita que la web pida password. Si falta una regla sudoers, la accion falla y muestra el comando que no tiene permiso.
@@ -141,11 +141,11 @@ export PALWORLD_CORS_ALLOWED_ORIGIN=http://TU_IP:5173
 export PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS='http://TU_IP:[*],https://panel.example.com:[*]'
 ```
 
-Para Cloudflare Tunnel con el dominio `https://pal.linuxred.lat`, en el servicio systemd del backend puedes dejar:
+Para Cloudflare Tunnel con un dominio como `https://pal.example.com`, en el servicio systemd del backend puedes dejar:
 
 ```ini
-Environment=PALWORLD_CORS_ALLOWED_ORIGIN=https://pal.linuxred.lat
-Environment=PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS=https://pal.linuxred.lat,https://*.linuxred.lat
+Environment=PALWORLD_CORS_ALLOWED_ORIGIN=https://pal.example.com
+Environment=PALWORLD_CORS_ALLOWED_ORIGIN_PATTERNS=https://pal.example.com,https://*.example.com
 ```
 
 Despues aplica:
@@ -457,6 +457,712 @@ El puerto RCON debe estar accesible desde donde corre el panel. Si el panel corr
 ```
 
 No abras RCON a internet sin firewall o VPN.
+
+## Estadisticas persistentes de jugadores y gremios
+
+PanelPalworld muestra estadisticas persistentes desde un archivo externo llamado `world-stats.json`. La aplicacion Java/Spring no ejecuta Python, no llama PalSav, no lee `Level.sav`, no lee `Level-min.json` y no modifica archivos del mundo. Java unicamente lee el JSON configurado por servidor.
+
+La fuente oficial del generador esta versionada en este repositorio:
+
+```text
+tools/palworld-stats/palworld_stats.py
+```
+
+### Arquitectura
+
+```text
+Palworld
+   |
+   | Level.sav activo
+   v
+palworld_stats.py
+   |
+   | shutil.copy2()
+   v
+<PALWORLD_STATS_DIR>/work/Level.sav
+   |
+   | PalSav convert
+   v
+<PALWORLD_STATS_DIR>/work/Level-min.json
+   |
+   | ijson
+   | CharacterSaveParameterMap
+   | GroupSaveDataMap
+   v
+filtrado y calculo
+   |
+   v
+world-stats.json.tmp
+   |
+   | os.replace()
+   v
+world-stats.json
+   |
+   v
+PanelPalworld Java/Spring
+```
+
+### Requisitos Debian
+
+Instala los paquetes base:
+
+```bash
+sudo apt update
+
+sudo apt install -y \
+  git \
+  python3 \
+  python3-venv \
+  python3-dev \
+  build-essential
+```
+
+Uso de cada paquete:
+
+- `git`: clonar PalSav y el repositorio de PanelPalworld.
+- `python3`: ejecutar el generador `palworld_stats.py`.
+- `python3-venv`: crear el entorno aislado para PalSav.
+- `python3-dev`: compilar dependencias Python con extensiones nativas si el entorno lo requiere.
+- `build-essential`: provee compilador y herramientas de build usadas por algunas dependencias.
+
+### Instalacion de PalSav
+
+Define estos placeholders antes de seguir:
+
+```text
+<PALWORLD_USER>   usuario Linux que ejecuta el servidor Palworld
+<PALWORLD_ROOT>   ruta raiz del servidor Palworld
+<PARSER_DIR>      ruta donde se instalara PalSav
+```
+
+Valor recomendado para el parser:
+
+```text
+/opt/palworld-save-parser
+```
+
+Crea el directorio:
+
+```bash
+sudo mkdir -p <PARSER_DIR>
+
+sudo chown \
+  <PALWORLD_USER>:<PALWORLD_USER> \
+  <PARSER_DIR>
+```
+
+Clona PalSav:
+
+```bash
+git clone \
+  --branch palsav-unified \
+  https://github.com/CyrixJD115/PalSav.git \
+  <PARSER_DIR>/PalSav
+```
+
+Crea el entorno Python:
+
+```bash
+python3 -m venv \
+  <PARSER_DIR>/venv
+```
+
+Actualiza herramientas base:
+
+```bash
+<PARSER_DIR>/venv/bin/pip install --upgrade \
+  pip \
+  setuptools \
+  wheel
+```
+
+Instala `palooz`:
+
+```bash
+<PARSER_DIR>/venv/bin/pip install \
+  <PARSER_DIR>/PalSav/palooz
+```
+
+Instala PalSav:
+
+```bash
+<PARSER_DIR>/venv/bin/pip install \
+  <PARSER_DIR>/PalSav
+```
+
+Instala dependencias adicionales del generador:
+
+```bash
+<PARSER_DIR>/venv/bin/pip install \
+  requests \
+  ijson
+```
+
+Verifica el ejecutable:
+
+```bash
+<PARSER_DIR>/venv/bin/palsav -h
+```
+
+Debe mostrar comandos como:
+
+```text
+backup
+convert
+diag
+validate
+```
+
+Verifica imports:
+
+```bash
+<PARSER_DIR>/venv/bin/python -c \
+"import palsav, palooz, orjson, requests, ijson; print('OK')"
+```
+
+Resultado esperado:
+
+```text
+OK
+```
+
+### Localizar WORLD_ID
+
+Busca el `Level.sav` activo:
+
+```bash
+find \
+  <PALWORLD_ROOT>/Pal/Saved/SaveGames/0 \
+  -name Level.sav \
+  -type f
+```
+
+Pueden aparecer rutas bajo `backup/world/...`; no uses esas para la configuracion principal. Debe usarse el `Level.sav` directamente bajo:
+
+```text
+<PALWORLD_ROOT>/Pal/Saved/SaveGames/0/<WORLD_ID>/Level.sav
+```
+
+### Configuracion
+
+El script usa estas variables:
+
+```text
+PALWORLD_ROOT       ruta raiz de Palworld
+PALWORLD_WORLD_ID   ID del mundo
+PALWORLD_STATS_DIR  directorio donde se escribira world-stats.json
+PALWORLD_PARSER_DIR ruta donde esta instalado PalSav
+```
+
+Si `PALWORLD_STATS_DIR` no esta definido, el script usa:
+
+```text
+<PALWORLD_ROOT>/jugadores
+```
+
+Si `PALWORLD_PARSER_DIR` no esta definido, el script usa:
+
+```text
+/opt/palworld-save-parser
+```
+
+Crea el archivo:
+
+```text
+/etc/default/panelpalworld-save-stats
+```
+
+Contenido generico:
+
+```bash
+PALWORLD_ROOT=/ruta/al/servidor/palworld
+PALWORLD_WORLD_ID=ID_DEL_MUNDO
+PALWORLD_STATS_DIR=/ruta/al/servidor/palworld/jugadores
+PALWORLD_PARSER_DIR=/opt/palworld-save-parser
+```
+
+Ejemplo conceptual:
+
+```text
+PALWORLD_ROOT=/home/usuario/palworld
+PALWORLD_WORLD_ID=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+PALWORLD_STATS_DIR=/home/usuario/palworld/jugadores
+PALWORLD_PARSER_DIR=/opt/palworld-save-parser
+```
+
+`PALWORLD_STATS_DIR` es la carpeta. El archivo final sera:
+
+```text
+<PALWORLD_STATS_DIR>/world-stats.json
+```
+
+Protege el archivo de configuracion:
+
+```bash
+sudo chown root:root \
+  /etc/default/panelpalworld-save-stats
+
+sudo chmod 644 \
+  /etc/default/panelpalworld-save-stats
+```
+
+No coloques contrasenas, IPs publicas, `AdminPassword` ni datos reales de jugadores en este archivo.
+
+### Script palworld_stats.py
+
+Crea el directorio de salida:
+
+```bash
+sudo install -d \
+  -o <PALWORLD_USER> \
+  -g <PALWORLD_USER> \
+  -m 755 \
+  <PALWORLD_ROOT>/jugadores
+```
+
+Copia el script oficial desde el repositorio:
+
+```bash
+sudo install \
+  -o <PALWORLD_USER> \
+  -g <PALWORLD_USER> \
+  -m 750 \
+  tools/palworld-stats/palworld_stats.py \
+  <PALWORLD_ROOT>/jugadores/palworld_stats.py
+```
+
+Si instalas desde una copia clonada de PanelPalworld, ejecuta el comando anterior desde la raiz del repositorio o cambia la ruta origen al path donde clonaste el proyecto.
+
+### Prueba manual
+
+Carga variables:
+
+```bash
+set -a
+source /etc/default/panelpalworld-save-stats
+set +a
+```
+
+Ejecuta:
+
+```bash
+<PALWORLD_PARSER_DIR>/venv/bin/python \
+  <PALWORLD_STATS_DIR>/palworld_stats.py
+```
+
+Salida aproximada:
+
+```text
+Iniciando actualizacion de estadisticas Palworld
+Copiando Level.sav...
+Save copiado...
+Convirtiendo copia de Level.sav con PalSav...
+JSON temporal generado...
+Leyendo jugadores...
+Jugadores unicos encontrados: X
+Leyendo gremios...
+Registros Guild encontrados: X
+world-stats.json actualizado correctamente
+Resultado: totalPlayers=X, playersWithBase=X, totalGuilds=X
+```
+
+Verifica el archivo final:
+
+```bash
+ls -lh \
+  <PALWORLD_STATS_DIR>/world-stats.json
+```
+
+Valida la sintaxis:
+
+```bash
+python3 -m json.tool \
+  <PALWORLD_STATS_DIR>/world-stats.json
+```
+
+### Formato world-stats.json
+
+```json
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-01-01T12:00:00-06:00",
+  "saveLastModified": "2026-01-01T11:59:00-06:00",
+  "totalPlayers": 100,
+  "playersWithBase": 30,
+  "totalGuilds": 8,
+  "guilds": [
+    {
+      "id": "guild-id",
+      "name": "Ejemplo Guild",
+      "leader": {
+        "uid": "player-uid",
+        "name": "Jugador"
+      },
+      "bases": 5,
+      "memberCount": 3,
+      "members": [
+        {
+          "uid": "player-uid",
+          "name": "Jugador",
+          "leader": true
+        }
+      ]
+    }
+  ]
+}
+```
+
+Campos:
+
+- `totalPlayers`: total de jugadores reales encontrados en `CharacterSaveParameterMap`, deduplicados por `PlayerUId`.
+- `playersWithBase`: cantidad de jugadores cuyo gremio actual tiene al menos una base.
+- `totalGuilds`: cantidad de gremios actuales que tienen al menos una base.
+- `guilds`: detalle de esos gremios, sus bases, lider y miembros.
+
+### Logica real del calculo
+
+No se obtiene `totalGuilds` contando directamente todos los registros `EPalGroupType::Guild`, porque `Level.sav` puede conservar registros historicos.
+
+El script:
+
+1. obtiene jugadores reales;
+2. identifica cada `PlayerUId`;
+3. lee todos los `Guild`;
+4. obtiene sus miembros;
+5. utiliza `last_online_real_time`;
+6. determina la membresia mas reciente de cada jugador;
+7. agrupa jugadores por su Guild actual;
+8. elimina de los resultados Guilds con `base_ids == 0`;
+9. genera el resultado definitivo.
+
+Regla de bases:
+
+```text
+Guild con 0 bases:
+  no aparece en guilds[]
+  no incrementa totalGuilds
+  sus jugadores no incrementan playersWithBase
+
+Guild con >= 1 base:
+  aparece en guilds[]
+  incrementa totalGuilds
+  sus miembros incrementan playersWithBase
+```
+
+Los jugadores de gremios sin base siguen contando dentro de:
+
+```text
+totalPlayers
+```
+
+### Servicio systemd
+
+Crea:
+
+```text
+/etc/systemd/system/panelpalworld-save-stats.service
+```
+
+Contenido:
+
+```ini
+[Unit]
+Description=PanelPalworld - Generador de estadisticas del save
+After=palworld.service
+
+[Service]
+Type=oneshot
+
+User=<PALWORLD_USER>
+Group=<PALWORLD_USER>
+
+EnvironmentFile=/etc/default/panelpalworld-save-stats
+
+WorkingDirectory=<PALWORLD_STATS_DIR>
+
+ExecStart=<PALWORLD_PARSER_DIR>/venv/bin/python <PALWORLD_STATS_DIR>/palworld_stats.py
+
+TimeoutStartSec=15min
+
+Nice=10
+IOSchedulingClass=idle
+
+NoNewPrivileges=true
+```
+
+Importante: `WorkingDirectory` y `ExecStart` no expanden variables del `EnvironmentFile` como lo haria un shell. Sustituye estos placeholders por valores reales al crear el unit file:
+
+```text
+<PALWORLD_STATS_DIR>
+<PALWORLD_PARSER_DIR>
+<PALWORLD_USER>
+```
+
+No uses `$PALWORLD_STATS_DIR` directamente en `ExecStart`.
+
+Detalles:
+
+- `Type=oneshot`: ejecuta el proceso y termina. Es normal ver `inactive (dead)` cuando termino correctamente; valida `status=0/SUCCESS`.
+- `Nice=10`: reduce prioridad de CPU.
+- `IOSchedulingClass=idle`: reduce prioridad de acceso a disco.
+- `TimeoutStartSec=15min`: evita procesos bloqueados indefinidamente.
+
+Recarga systemd:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+Prueba el service antes del timer:
+
+```bash
+sudo systemctl start \
+  panelpalworld-save-stats.service
+```
+
+Revisa estado:
+
+```bash
+systemctl status \
+  panelpalworld-save-stats.service \
+  --no-pager
+```
+
+### Timer systemd cada 20 minutos
+
+Crea:
+
+```text
+/etc/systemd/system/panelpalworld-save-stats.timer
+```
+
+Contenido:
+
+```ini
+[Unit]
+Description=PanelPalworld - Actualizar estadisticas Palworld cada 20 minutos
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=20min
+AccuracySec=15s
+Persistent=true
+Unit=panelpalworld-save-stats.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Comportamiento:
+
+- primera ejecucion aproximadamente 2 minutos despues del arranque;
+- despues se ejecuta cada 20 minutos;
+- `Persistent=true` conserva el comportamiento despues de reinicios.
+
+Activa el timer:
+
+```bash
+sudo systemctl enable --now \
+  panelpalworld-save-stats.timer
+```
+
+Verifica:
+
+```bash
+systemctl status \
+  panelpalworld-save-stats.timer \
+  --no-pager
+```
+
+Lista proximas ejecuciones:
+
+```bash
+systemctl list-timers \
+  panelpalworld-save-stats.timer
+```
+
+### Logs
+
+Ultimas lineas:
+
+```bash
+journalctl \
+  -u panelpalworld-save-stats.service \
+  -n 100 \
+  --no-pager
+```
+
+En tiempo real:
+
+```bash
+journalctl \
+  -u panelpalworld-save-stats.service \
+  -f
+```
+
+### Integracion con PanelPalworld
+
+En PanelPalworld configura la ruta completa del archivo por servidor desde `Servidores` -> `Editar servidor`:
+
+```text
+<PALWORLD_STATS_DIR>/world-stats.json
+```
+
+No configures solamente:
+
+```text
+<PALWORLD_STATS_DIR>
+```
+
+Ejemplo generico:
+
+```text
+/home/usuario/palworld/jugadores/world-stats.json
+```
+
+Si la ruta no esta configurada, el archivo no existe, no tiene permisos de lectura o el JSON no es valido, el dashboard sigue cargando y muestra un estado controlado como `No configurado`.
+
+El usuario que ejecuta `palworld-admin.service` necesita permiso de lectura sobre el JSON y permiso de ejecucion sobre sus directorios padre. Ejemplo con ACLs:
+
+```bash
+sudo apt install -y acl
+sudo setfacl -m u:<PANEL_USER>:rx /home/usuario
+sudo setfacl -m u:<PANEL_USER>:rx /home/usuario/palworld
+sudo setfacl -m u:<PANEL_USER>:rx /home/usuario/palworld/jugadores
+sudo setfacl -m u:<PANEL_USER>:r /home/usuario/palworld/jugadores/world-stats.json
+```
+
+El dashboard muestra:
+
+```text
+Jugadores
+Totales         100
+Total gremios     8
+```
+
+La pagina `Gremios` muestra el detalle de gremios, cantidad de bases y jugadores de cada gremio desde `guilds[]`.
+
+### Seguridad
+
+El script nunca modifica:
+
+```text
+<PALWORLD_ROOT>/Pal/Saved/SaveGames/0/<WORLD_ID>/Level.sav
+```
+
+Solo copia:
+
+```python
+shutil.copy2(
+    SOURCE_SAV,
+    WORK_SAV
+)
+```
+
+PalSav trabaja sobre:
+
+```text
+<PALWORLD_STATS_DIR>/work/Level.sav
+```
+
+No trabaja sobre el archivo activo. No uses `--from-json` ni operaciones que reconstruyan el save activo.
+
+La escritura del JSON es atomica:
+
+```text
+world-stats.json.tmp
+        |
+        | escritura completa
+        v
+os.replace()
+        |
+        v
+world-stats.json
+```
+
+Esto evita que Java lea un JSON incompleto.
+
+Si falla lectura, copia, PalSav, JSON, parsing o escritura, el script termina con codigo distinto de cero y no borra el ultimo `world-stats.json` valido. Asi PanelPalworld puede seguir mostrando la ultima informacion disponible.
+
+Despues de cada ejecucion se eliminan temporales:
+
+```text
+<PALWORLD_STATS_DIR>/work/Level.sav
+<PALWORLD_STATS_DIR>/work/Level-min.json
+<PALWORLD_STATS_DIR>/world-stats.json.tmp
+```
+
+Se mantiene:
+
+```text
+<PALWORLD_STATS_DIR>/world-stats.json
+```
+
+### Rendimiento
+
+El JSON temporal puede ser muy grande. En pruebas, un `Level.sav` relativamente pequeno puede producir varios cientos de MB de JSON.
+
+Por eso:
+
+- Java no procesa `Level.sav`;
+- se usa `ijson` para lectura incremental;
+- se ejecuta periodicamente;
+- el timer recomendado es cada 20 minutos;
+- se usa `Nice=10`;
+- se usa `IOSchedulingClass=idle`;
+- los temporales se eliminan al finalizar.
+
+Mejora futura posible, no implementada aqui:
+
+```text
+Eliminar la conversion completa a JSON y utilizar PalSav directamente como libreria Python para extraer unicamente CharacterSaveParameterMap y GroupSaveDataMap.
+```
+
+### Estructura final
+
+Servidor Palworld:
+
+```text
+<PALWORLD_ROOT>/
+|-- Pal/
+|   `-- Saved/
+|       `-- SaveGames/
+|           `-- 0/
+|               `-- <WORLD_ID>/
+|                   `-- Level.sav
+|
+`-- jugadores/
+    |-- palworld_stats.py
+    |-- world-stats.json
+    `-- work/
+```
+
+Parser:
+
+```text
+<PALWORLD_PARSER_DIR>/
+|-- PalSav/
+`-- venv/
+```
+
+Systemd:
+
+```text
+/etc/default/
+`-- panelpalworld-save-stats
+
+/etc/systemd/system/
+|-- panelpalworld-save-stats.service
+`-- panelpalworld-save-stats.timer
+```
+
+Repositorio PanelPalworld:
+
+```text
+tools/
+`-- palworld-stats/
+    `-- palworld_stats.py
+```
 
 ## Permisos sudo sin password
 

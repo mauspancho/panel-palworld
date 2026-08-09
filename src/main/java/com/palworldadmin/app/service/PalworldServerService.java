@@ -180,6 +180,7 @@ public class PalworldServerService {
         if (server.getRconPassword() != null) {
             server.setRconPassword(server.getRconPassword().trim());
         }
+        server.setWorldStatsPath(normalizeWorldStatsPath(server.getWorldStatsPath()));
         server.setLinuxUser(PathSecurityUtil.requireSafeLinuxUser(server.getLinuxUser(), "Usuario"));
         server.setLinuxGroup(PathSecurityUtil.requireSafeLinuxUser(server.getLinuxGroup(), "Grupo"));
         if (server.getType() != null && server.getType().isSystemd()) {
@@ -232,6 +233,23 @@ public class PalworldServerService {
             throw new IllegalArgumentException("Puerto RCON invalido.");
         }
         return port;
+    }
+
+    private String normalizeWorldStatsPath(String path) {
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        String trimmed = path.trim();
+        if (trimmed.length() > 1024) {
+            throw new IllegalArgumentException("Ruta de estadisticas demasiado larga.");
+        }
+        if (trimmed.contains("\0") || trimmed.contains("\n") || trimmed.contains("\r")) {
+            throw new IllegalArgumentException("Ruta de estadisticas invalida.");
+        }
+        if (!trimmed.startsWith("/")) {
+            throw new IllegalArgumentException("La ruta de estadisticas debe ser absoluta en Linux.");
+        }
+        return trimmed;
     }
 
     private String normalizeAutoRestartTime(String time) {

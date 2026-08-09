@@ -6,6 +6,7 @@ import type {
   ConfigProfileDiffEntry,
   ConfigProfileList,
   DashboardView,
+  GuildServerView,
   PagedAudit,
   PagedActivity,
   PlayerAverageView,
@@ -26,6 +27,22 @@ type CsrfToken = {
   token: string;
   headerName: string;
   parameterName: string;
+};
+
+type ServerWritePayload = {
+  name: string;
+  type: string;
+  serviceName?: string;
+  containerName?: string;
+  composeProjectName?: string;
+  rootPath: string;
+  steamcmdPath?: string;
+  linuxUser?: string;
+  linuxGroup?: string;
+  publicPort?: number | null;
+  updateCommand?: string;
+  worldStatsPath?: string;
+  enabled: boolean;
 };
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
@@ -121,6 +138,19 @@ export const api = {
   },
   dashboard: (logPage = 0, logSize = 10) => request<DashboardView>(`/api/dashboard?logPage=${logPage}&logSize=${logSize}`),
   servers: () => request<ServerView[]>("/api/servers"),
+  guilds: () => request<GuildServerView[]>("/api/guilds"),
+  createServer: (payload: ServerWritePayload) =>
+    request<ServerView>("/api/servers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
+  updateServer: (id: number, payload: ServerWritePayload) =>
+    request<ServerView>(`/api/servers/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }),
   serverLogs: (id: number, lines = 200) => request<ServerLogsView>(`/api/servers/${id}/logs?lines=${lines}`),
   serverAction: (id: number, action: string) => request<ActionResult>(`/api/servers/${id}/actions/${action}`, { method: "POST" }),
   deleteServer: (id: number) => request<ActionResult>(`/api/servers/${id}`, { method: "DELETE" }),

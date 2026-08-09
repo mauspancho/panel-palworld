@@ -157,15 +157,6 @@ export function DashboardPage({ onOpenRcon }: { onOpenRcon: (id: number) => void
   const hasSeries = data.activitySeries.length > 0;
   const servers = data.servers;
   const running = data.servers.find((server) => server.status === "RUNNING");
-  const playerSummary = Object.values(playerStates).reduce(
-    (summary, item) => ({
-      total: summary.total + (item.count ?? 0),
-      tracked: summary.tracked + (item.totalTracked ?? 0),
-      okServers: summary.okServers + (item.status === "ok" ? 1 : 0),
-      loading: summary.loading || item.status === "loading"
-    }),
-    { total: 0, tracked: 0, okServers: 0, loading: false }
-  );
 
   function playersLabel(serverId: number) {
     const server = servers.find((item) => item.id === serverId);
@@ -175,13 +166,6 @@ export function DashboardPage({ onOpenRcon }: { onOpenRcon: (id: number) => void
     if (state.status === "loading") return "Consultando";
     if (state.status === "error") return "Error RCON";
     return `${state.count ?? 0} de ${state.totalTracked ?? 0}`;
-  }
-
-  function connectedSummaryLabel() {
-    if (playerSummary.loading) {
-      return "...";
-    }
-    return `${playerSummary.total} de ${playerSummary.tracked}`;
   }
 
   function averageLabel() {
@@ -311,12 +295,35 @@ export function DashboardPage({ onOpenRcon }: { onOpenRcon: (id: number) => void
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard title="Servidores" value={data.stats.totalServers} detail={`${data.stats.runningServers} encendido(s)`} icon={Server} />
         <MetricCard title="RCON activo" value={data.stats.rconEnabledServers} detail="Configurado por servidor" icon={Radio} />
-        <MetricCard
-          title="Jugadores activos"
-          value={connectedSummaryLabel()}
-          detail={playerSummary.okServers > 0 ? "conectados de jugadores con historial" : "Sin datos RCON activos"}
-          icon={Users}
-        />
+        <Card className="overflow-hidden">
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-sm text-muted-foreground">Jugadores</div>
+                {data.worldStats.available ? (
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex items-center justify-between gap-6">
+                      <span className="text-muted-foreground">Totales</span>
+                      <span className="text-2xl font-semibold tracking-normal">{data.worldStats.totalPlayers}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-6">
+                      <span className="text-muted-foreground">Total gremios</span>
+                      <span className="font-semibold">{data.worldStats.totalGuilds}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="mt-2 text-3xl font-semibold tracking-normal">...</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{data.worldStats.message}</div>
+                  </>
+                )}
+              </div>
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-cyan-400/10 text-cyan-200 ring-1 ring-cyan-300/20">
+                <Users className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         <Card className="overflow-hidden">
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-4">

@@ -54,6 +54,9 @@ public class PalworldServer {
     @Column(length = 2048)
     private String updateCommand;
 
+    @Column(length = 1024)
+    private String worldStatsPath;
+
     @Column(columnDefinition = "boolean default false")
     private Boolean autoRestartEnabled = false;
 
@@ -208,6 +211,14 @@ public class PalworldServer {
 
     public void setUpdateCommand(String updateCommand) {
         this.updateCommand = updateCommand;
+    }
+
+    public String getWorldStatsPath() {
+        return worldStatsPath;
+    }
+
+    public void setWorldStatsPath(String worldStatsPath) {
+        this.worldStatsPath = worldStatsPath;
     }
 
     public boolean isAutoRestartEnabled() {
